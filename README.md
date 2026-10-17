@@ -9,6 +9,10 @@
 > [btop-gpu guide](docs/btop-gpu.md) for requirements, installation, usage, troubleshooting,
 > package maintenance, limitations, and implementation details.
 >
+> Latest release: [`btop-gpu v1.0.0`](https://github.com/infyrno1010101/btop/releases/tag/btop-gpu-v1.0.0)
+> · Arch package recipe: [`package/arch`](package/arch)
+> · GPU issue report: [`gpu_sorting_bug.md`](.github/ISSUE_TEMPLATE/gpu_sorting_bug.md)
+>
 > Current development branch: [`gpu-process-sorting`](https://github.com/infyrno1010101/btop/tree/gpu-process-sorting)
 > · Original project: [`aristocratos/btop`](https://github.com/aristocratos/btop)
 
