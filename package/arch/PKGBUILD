@@ -1,0 +1,29 @@
+pkgname=btop-gpu-sort-git
+pkgver=1.4.7.r113.ga9681f2
+pkgrel=1
+pkgdesc='Resource monitor with NVIDIA per-process GPU utilization and VRAM sorting'
+arch=('x86_64')
+url='https://github.com/infyrno1010101/btop'
+license=('Apache-2.0')
+depends=('gcc-libs' 'glibc')
+makedepends=('cmake')
+provides=("btop=${pkgver}")
+conflicts=('btop')
+source=("btop-${pkgver}.tar.gz")
+sha256sums=('ac0e440ae56a308e9df5c880cec834628da272b337c75f0127512085656566a7')
+
+build() {
+	cmake \
+		-S "btop-${pkgver}" \
+		-B build \
+		-DBTOP_GPU=ON \
+		-DBUILD_TESTING=OFF \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=/usr
+	cmake --build build
+}
+
+package() {
+	DESTDIR="${pkgdir}" cmake --install build
+	install -Dm644 "btop-${pkgver}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
