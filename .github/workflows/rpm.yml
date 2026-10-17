@@ -1,0 +1,61 @@
+name: RPM packages
+
+on:
+  push:
+    branches: [gpu-process-sorting]
+    paths:
+      - "src/**"
+      - "include/**"
+      - "CMakeLists.txt"
+      - "package/rpm/**"
+      - ".github/workflows/rpm.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "include/**"
+      - "CMakeLists.txt"
+      - "package/rpm/**"
+      - ".github/workflows/rpm.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Rocky Linux ${{ matrix.release }}
+    runs-on: ubuntu-latest
+    container: rockylinux/rockylinux:${{ matrix.release }}
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ["9", "10"]
+
+    steps:
+      - name: Install checkout requirements
+        run: dnf install -y git tar gzip
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install RPM build requirements
+        run: |
+          if [[ "${{ matrix.release }}" == "9" ]]; then
+            dnf install -y cmake gcc-toolset-14-gcc-c++ make rpm-build
+          else
+            dnf install -y cmake gcc-c++ make rpm-build
+          fi
+
+      - name: Build RPM and source RPM
+        run: ./package/rpm/build-rpm.sh
+
+      - name: Inspect package
+        run: |
+          rpm_file=$(find package/rpm/rpmbuild/RPMS -name 'btop-gpu-*.rpm' -type f | head -n1)
+          rpm -qip "${rpm_file}"
+          rpm -qlp "${rpm_file}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: btop-gpu-rocky-${{ matrix.release }}-rpms
+          path: |
+            package/rpm/rpmbuild/RPMS/**/*.rpm
+            package/rpm/rpmbuild/SRPMS/*.rpm

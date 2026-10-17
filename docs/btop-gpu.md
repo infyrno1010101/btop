@@ -67,6 +67,34 @@ makepkg --cleanbuild --clean --force
 sudo pacman -U ./btop-gpu-sort-git-*.pkg.tar.zst
 ```
 
+## Red Hat Enterprise Linux and compatible distributions
+
+An RPM recipe is included for x86_64 systems. It is continuously built on
+Rocky Linux 9 and 10, which exercise the corresponding RHEL package interfaces.
+
+- RHEL 10 uses the distribution GCC 14 compiler.
+- RHEL 9 uses GCC Toolset 14 from AppStream.
+
+Install the build dependencies and create the RPM by following
+[`package/rpm/README.md`](../package/rpm/README.md). From an already prepared
+build host, the complete build command is:
+
+```bash
+./package/rpm/build-rpm.sh
+```
+
+Install the resulting package with DNF:
+
+```bash
+sudo dnf install ./package/rpm/rpmbuild/RPMS/x86_64/btop-gpu-*.rpm
+```
+
+The RPM uses the standard `btop` executable and declares the package metadata
+needed for DNF to replace a distribution `btop` installation. The NVIDIA driver
+and NVML remain runtime requirements. They are not hard-coded as an RPM
+dependency because the exact driver package name depends on the configured
+NVIDIA or distribution repository.
+
 ## Build and install manually
 
 Using CMake:
@@ -138,6 +166,13 @@ pacman -Q btop-gpu-sort-git
 sudo pacman -Qkk btop-gpu-sort-git
 ```
 
+On RHEL-compatible systems, verify the installed package:
+
+```bash
+rpm -q btop-gpu
+rpm -V btop-gpu
+```
+
 ## Troubleshooting
 
 ### The GPU sort choices are missing
@@ -177,6 +212,12 @@ Pacman will replace `btop-gpu-sort-git` because the packages conflict. To remove
 
 ```bash
 sudo pacman -Rns btop-gpu-sort-git
+```
+
+On RHEL-compatible systems, return to the distribution package with:
+
+```bash
+sudo dnf swap btop-gpu btop
 ```
 
 ## Current scope

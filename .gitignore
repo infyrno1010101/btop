@@ -88,3 +88,6 @@ CMakeUserPresets.json
 
 # CLion
 cmake-build-*
+
+# Local RPM build output
+package/rpm/rpmbuild/
