@@ -36,6 +36,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Trust the container checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Install RPM build requirements
         run: |
           if [[ "${{ matrix.release }}" == "9" ]]; then
