@@ -1,5 +1,17 @@
 # ![btop++](Img/logo.png)
 
+> [!IMPORTANT]
+> ## btop-gpu fork
+>
+> This fork adds **NVIDIA per-process GPU utilization and VRAM sorting** to btop on Linux.
+> The new `gpu` and `gpu memory` process sort modes appear automatically when the installed
+> NVIDIA driver exposes the required NVML functions. See the complete
+> [btop-gpu guide](docs/btop-gpu.md) for requirements, installation, usage, troubleshooting,
+> package maintenance, limitations, and implementation details.
+>
+> Current development branch: [`gpu-process-sorting`](https://github.com/infyrno1010101/btop/tree/gpu-process-sorting)
+> · Original project: [`aristocratos/btop`](https://github.com/aristocratos/btop)
+
 <a href="https://repology.org/project/btop/versions">
     <img src="https://repology.org/badge/vertical-allrepos/btop.svg" alt="Packaging status" align="right">
 </a>
@@ -24,6 +36,7 @@
 
 ## Index
 
+* [btop-gpu fork guide](docs/btop-gpu.md)
 * [News](#news)
 * [Documents](#documents)
 * [Description](#description)
