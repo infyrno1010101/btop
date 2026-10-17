@@ -70,10 +70,12 @@ sudo pacman -U ./btop-gpu-sort-git-*.pkg.tar.zst
 ## Red Hat Enterprise Linux and compatible distributions
 
 An RPM recipe is included for x86_64 systems. It is continuously built on
-Rocky Linux 9 and 10, which exercise the corresponding RHEL package interfaces.
+Rocky Linux 8, 9, and 10, which exercise the corresponding RHEL package interfaces.
 
 - RHEL 10 uses the distribution GCC 14 compiler.
-- RHEL 9 uses GCC Toolset 14 from AppStream.
+- RHEL 8 and 9 use GCC Toolset 14 from AppStream.
+- RHEL 8 statically links the GCC C++ runtime because its system `libstdc++`
+  predates the C++23 features required by current btop. NVML remains dynamic.
 
 Install the build dependencies and create the RPM by following
 [`package/rpm/README.md`](../package/rpm/README.md). From an already prepared

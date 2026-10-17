@@ -1,5 +1,5 @@
 Name:           btop-gpu
-Version:        1.0.1
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        Resource monitor with NVIDIA per-process GPU sorting
 
@@ -12,10 +12,14 @@ Source0:        %{url}/archive/refs/tags/btop-gpu-v%{version}.tar.gz
 ExclusiveArch:  x86_64
 BuildRequires:  cmake >= 3.25
 BuildRequires:  make
+%if 0%{?rhel} == 8
+BuildRequires:  gcc-toolset-14-gcc-c++
+%else
 %if 0%{?rhel} == 9
 BuildRequires:  gcc-toolset-14-gcc-c++
 %else
 BuildRequires:  gcc-c++ >= 14
+%endif
 %endif
 
 Provides:       btop = 1.4.7
@@ -31,14 +35,23 @@ runtime and keeps the btop command and configuration format.
 %autosetup -n btop-btop-gpu-v%{version}
 
 %build
+%if 0%{?rhel} == 8
+source /opt/rh/gcc-toolset-14/enable
+linker_flags="-static-libgcc -static-libstdc++"
+%else
 %if 0%{?rhel} == 9
 source /opt/rh/gcc-toolset-14/enable
+linker_flags=""
+%else
+linker_flags=""
+%endif
 %endif
 cmake -S . -B build-rpm \
     -DBTOP_GPU=ON \
     -DBUILD_TESTING=OFF \
     -DBTOP_LTO=OFF \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_EXE_LINKER_FLAGS="${linker_flags}" \
     -DCMAKE_INSTALL_PREFIX=%{_prefix}
 cmake --build build-rpm --parallel %{?_smp_build_ncpus}
 
@@ -57,6 +70,11 @@ install -Dpm0644 docs/btop-gpu.md %{buildroot}%{_docdir}/%{name}/README.md
 %{_datadir}/btop/
 
 %changelog
+* Sat Oct 17 2026 Infyrno <infyrno@users.noreply.github.com> - 1.0.2-1
+- Add a RHEL 8 build using GCC Toolset 14.
+- Link the GCC runtime statically on RHEL 8 for compatibility with its system
+  libstdc++ while retaining dynamic NVML loading.
+
 * Sat Oct 17 2026 Infyrno <infyrno@users.noreply.github.com> - 1.0.1-1
 - Add RHEL 9 and RHEL 10 packaging for btop-gpu.
 - Add NVIDIA per-process utilization and VRAM sorting.

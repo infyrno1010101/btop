@@ -8,7 +8,11 @@ Supported build targets:
 
 - RHEL 10 and compatible distributions on x86_64, using the system GCC 14
   toolchain.
-- RHEL 9 and compatible distributions on x86_64, using GCC Toolset 14.
+- RHEL 8 and 9 and compatible distributions on x86_64, using GCC Toolset 14.
+
+The RHEL 8 build links `libstdc++` and `libgcc` into the executable because the
+system C++ runtime predates the C++23 features used by current btop. Glibc and
+NVML remain dynamically linked, so NVIDIA driver discovery continues to work.
 
 ## Install build dependencies
 
@@ -18,7 +22,7 @@ RHEL 10, Rocky Linux 10, or AlmaLinux 10:
 sudo dnf install cmake gcc-c++ git make rpm-build
 ```
 
-RHEL 9, Rocky Linux 9, or AlmaLinux 9:
+RHEL 8 or 9, Rocky Linux 8 or 9, or AlmaLinux 8 or 9:
 
 ```bash
 sudo dnf install cmake gcc-toolset-14-gcc-c++ git make rpm-build

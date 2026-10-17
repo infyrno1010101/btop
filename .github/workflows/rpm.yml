@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        release: ["9", "10"]
+        release: ["8", "9", "10"]
 
     steps:
       - name: Install checkout requirements
@@ -41,7 +41,7 @@ jobs:
 
       - name: Install RPM build requirements
         run: |
-          if [[ "${{ matrix.release }}" == "9" ]]; then
+          if [[ "${{ matrix.release }}" == "8" || "${{ matrix.release }}" == "9" ]]; then
             dnf install -y cmake gcc-toolset-14-gcc-c++ make rpm-build
           else
             dnf install -y cmake gcc-c++ make rpm-build
