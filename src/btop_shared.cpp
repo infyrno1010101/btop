@@ -84,6 +84,7 @@ namespace Cpu {
 namespace Gpu {
 	vector<string> gpu_names;
 	vector<int> gpu_b_height_offsets;
+	std::unordered_map<size_t, proc_gpu_info> process_stats;
 	std::unordered_map<string, deque<long long>> shared_gpu_percent = {
 		{"gpu-average", {}},
 		{"gpu-vram-total", {}},
@@ -103,6 +104,13 @@ bool set_priority(pid_t pid, int priority) {
 
 	void proc_sorter(vector<proc_info>& proc_vec, const string& sorting, bool reverse, bool tree) {
 		if (reverse) {
+		#if defined(GPU_SUPPORT) && defined(__linux__)
+			if (sorting == "gpu")
+				rng::stable_sort(proc_vec, rng::less{}, &proc_info::gpu_p);
+			else if (sorting == "gpu memory")
+				rng::stable_sort(proc_vec, rng::less{}, &proc_info::gpu_mem);
+			else
+		#endif
 			switch (v_index(sort_vector, sorting)) {
 			case 0: rng::stable_sort(proc_vec, rng::less{}, &proc_info::pid); 		break;
 			case 1: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::name);		break;
@@ -115,6 +123,13 @@ bool set_priority(pid_t pid, int priority) {
 			}
 		}
 		else {
+		#if defined(GPU_SUPPORT) && defined(__linux__)
+			if (sorting == "gpu")
+				rng::stable_sort(proc_vec, rng::greater{}, &proc_info::gpu_p);
+			else if (sorting == "gpu memory")
+				rng::stable_sort(proc_vec, rng::greater{}, &proc_info::gpu_mem);
+			else
+		#endif
 			switch (v_index(sort_vector, sorting)) {
 			case 0: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::pid); 		break;
 			case 1: rng::stable_sort(proc_vec, rng::less{}, &proc_info::name);		break;
@@ -148,6 +163,13 @@ bool set_priority(pid_t pid, int priority) {
 	void tree_sort(vector<tree_proc>& proc_vec, const string& sorting, bool reverse, bool paused, int& c_index, const int index_max, bool collapsed) {
 		if (proc_vec.size() > 1 and not paused) {
 			if (reverse) {
+			#if defined(GPU_SUPPORT) && defined(__linux__)
+				if (sorting == "gpu")
+					rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().gpu_p < b.entry.get().gpu_p; });
+				else if (sorting == "gpu memory")
+					rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().gpu_mem < b.entry.get().gpu_mem; });
+				else
+			#endif
 				switch (v_index(sort_vector, sorting)) {
 				case 3: rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().threads < b.entry.get().threads; });	break;
 				case 5: rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().mem < b.entry.get().mem; });	break;
@@ -156,6 +178,13 @@ bool set_priority(pid_t pid, int priority) {
 				}
 			}
 			else {
+			#if defined(GPU_SUPPORT) && defined(__linux__)
+				if (sorting == "gpu")
+					rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().gpu_p > b.entry.get().gpu_p; });
+				else if (sorting == "gpu memory")
+					rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().gpu_mem > b.entry.get().gpu_mem; });
+				else
+			#endif
 				switch (v_index(sort_vector, sorting)) {
 				case 3: rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().threads > b.entry.get().threads; });	break;
 				case 5: rng::stable_sort(proc_vec, [](const auto& a, const auto& b) { return a.entry.get().mem > b.entry.get().mem; });	break;
@@ -245,6 +274,10 @@ bool set_priority(pid_t pid, int priority) {
 					cur_proc.cpu_c += p.cpu_c;
 					cur_proc.mem += p.mem;
 					cur_proc.threads += p.threads;
+				#if defined(GPU_SUPPORT) && defined(__linux__)
+					cur_proc.gpu_p += p.gpu_p;
+					cur_proc.gpu_mem += p.gpu_mem;
+				#endif
 				}
 				filter_found++;
 				p.filtered = true;
@@ -254,6 +287,10 @@ bool set_priority(pid_t pid, int priority) {
 				cur_proc.cpu_c += p.cpu_c;
 				cur_proc.mem += p.mem;
 				cur_proc.threads += p.threads;
+			#if defined(GPU_SUPPORT) && defined(__linux__)
+				cur_proc.gpu_p += p.gpu_p;
+				cur_proc.gpu_mem += p.gpu_mem;
+			#endif
 			}
 		}
 	}
@@ -334,7 +371,7 @@ auto detect_container() -> std::optional<std::string> {
 const array<string, 2> Gpu::mem_names { "used", "free" };
 #endif
 
-const vector<string> Proc::sort_vector = {
+vector<string> Proc::sort_vector = {
 	"pid",
 	"name",
 	"command",

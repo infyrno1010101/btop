@@ -514,6 +514,7 @@ namespace Runner {
 					or Config::getS("cpu_graph_upper").starts_with("gpu-")
 					or (Gpu::shown == 0 and Config::getS("show_gpu_info") != "Off")
 				);
+				const bool gpu_process_sorting = Config::getS("proc_sorting").starts_with("gpu");
 
 				vector<unsigned int> gpu_panels = {};
 				for (auto& box : conf.boxes)
@@ -521,7 +522,7 @@ namespace Runner {
 						gpu_panels.push_back(box.back()-'0');
 
 				vector<Gpu::gpu_info> gpus;
-				if (gpu_in_cpu_panel or not gpu_panels.empty()) {
+				if (gpu_in_cpu_panel or gpu_process_sorting or not gpu_panels.empty()) {
 					if (Global::debug) debug_timer("gpu", collect_begin);
 					gpus = Gpu::collect(conf.no_update);
 					if (Global::debug) debug_timer("gpu", collect_done);

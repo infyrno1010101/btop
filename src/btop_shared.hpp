@@ -124,6 +124,13 @@ namespace Gpu {
 
 	extern std::unordered_map<string, deque<long long>> shared_gpu_percent; // averages, power/vram total
 
+	struct proc_gpu_info {
+		double utilization{};
+		uint64_t memory{};
+	};
+
+	extern std::unordered_map<size_t, proc_gpu_info> process_stats;
+
 	extern const array<string, 2> mem_names;
 
 	//* Container for process information // TODO
@@ -373,7 +380,7 @@ namespace Proc {
 	extern atomic<bool> resized;
 
 	//? Contains the valid sorting options for processes
-	extern const vector<string> sort_vector;
+	extern vector<string> sort_vector;
 
 	//? Translation from process state char to explanative string
 	extern const std::unordered_map<char, string> proc_states;
@@ -395,6 +402,10 @@ namespace Proc {
 		uint64_t ppid{};
 		uint64_t cpu_s{};
 		uint64_t cpu_t{};
+	#if defined(GPU_SUPPORT) && defined(__linux__)
+		double gpu_p{};
+		uint64_t gpu_mem{};
+	#endif
 		uint64_t death_time{};
 		string prefix{};        // defaults to ""
 		size_t depth{};

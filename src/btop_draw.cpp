@@ -1716,6 +1716,14 @@ namespace Proc {
 		auto mem_bytes = Config::getB("proc_mem_bytes");
 		auto vim_keys = Config::getB("vim_keys");
 		auto show_graphs = Config::getB("proc_cpu_graphs");
+		const auto& sorting = Config::getS("proc_sorting");
+	#if defined(GPU_SUPPORT) && defined(__linux__)
+		const bool show_gpu_utilization = sorting == "gpu";
+		const bool show_gpu_memory = sorting == "gpu memory";
+	#else
+		constexpr bool show_gpu_utilization = false;
+		constexpr bool show_gpu_memory = false;
+	#endif
 		const auto pause_proc_list = Config::getB("pause_proc_list");
 		auto follow_process = Config::getB("follow_process");
 		int followed_pid = Config::getI("followed_pid");
@@ -1913,7 +1921,6 @@ namespace Proc {
 			}
 
 			//? pause, per-core, reverse, tree and sorting
-			const auto& sorting = Config::getS("proc_sorting");
 			const int sort_len = sorting.size();
 			const int sort_pos = x + width - sort_len - 8;
 
@@ -1991,8 +1998,8 @@ namespace Proc {
 
 			out += (thread_size > 0 ? Mv::l(4) + "Threads: " : "")
 					+ ljust("User:", user_size) + ' '
-					+ rjust((mem_bytes ? "MemB" : "Mem%"), 5) + ' '
-					+ rjust("Cpu%", (show_graphs ? 10 : 5)) + Fx::ub;
+					+ rjust((show_gpu_memory ? "GpuB" : mem_bytes ? "MemB" : "Mem%"), 5) + ' '
+					+ rjust((show_gpu_utilization ? "Gpu%" : "Cpu%"), (show_graphs ? 10 : 5)) + Fx::ub;
 		}
 		//* End of redraw block
 
@@ -2136,16 +2143,25 @@ namespace Proc {
 				out += string(max(0, width_left), ' ') + Mv::to(y+2+lc, x+2+tree_size);
 			}
 			//? Common end of line
-			string cpu_str = fmt::format("{:.2f}", p.cpu_p);
-			if (p.cpu_p < 10 or (p.cpu_p >= 100 and p.cpu_p < 1000)) cpu_str.resize(3);
-			else if (p.cpu_p >= 10'000) {
-				cpu_str = fmt::format("{:.2f}", p.cpu_p / 1000);
+			double displayed_utilization = p.cpu_p;
+		#if defined(GPU_SUPPORT) && defined(__linux__)
+			if (show_gpu_utilization) displayed_utilization = p.gpu_p;
+		#endif
+			string cpu_str = fmt::format("{:.2f}", displayed_utilization);
+			if (displayed_utilization < 10 or (displayed_utilization >= 100 and displayed_utilization < 1000)) cpu_str.resize(3);
+			else if (displayed_utilization >= 10'000) {
+				cpu_str = fmt::format("{:.2f}", displayed_utilization / 1000);
 				cpu_str.resize(3);
 				if (cpu_str.ends_with('.')) cpu_str.pop_back();
 				cpu_str += "k";
 			}
-			string mem_str = (mem_bytes ? floating_humanizer(p.mem, true) : "");
-			if (not mem_bytes) {
+			string mem_str;
+		#if defined(GPU_SUPPORT) && defined(__linux__)
+			if (show_gpu_memory) mem_str = floating_humanizer(p.gpu_mem, true);
+			else
+		#endif
+				mem_str = (mem_bytes ? floating_humanizer(p.mem, true) : "");
+			if (not show_gpu_memory and not mem_bytes) {
 				double mem_p = clamp((double)p.mem * 100 / totalMem, 0.0, 100.0);
 				mem_str = mem_p < 0.01 ? "0" : fmt::format("{:.1f}", mem_p);
 				if (mem_str.size() > 3) mem_str.resize(3);
@@ -2165,8 +2181,8 @@ namespace Proc {
 			out += (thread_size > 0 ? t_color + rjust(proc_threads_string, thread_size) + ' ' + end : "" )
 				+ g_color + ljust((cmp_greater(p.user.size(), user_size) ? p.user.substr(0, user_size - 1) + '+' : p.user), user_size) + ' '
 				+ m_color + rjust(mem_str, 5) + end + ' '
-				+ (is_selected or is_followed ? "" : Theme::c("inactive_fg")) + (show_graphs ? graph_bg * 5: "")
-				+ (p_graphs.contains(p.pid) ? Mv::l(5) + c_color + p_graphs.at(p.pid)({(p.cpu_p >= 0.1 and p.cpu_p < 5 ? 5ll : (long long)round(p.cpu_p))}, data_same) : "") + end + ' '
+				+ (is_selected or is_followed ? "" : Theme::c("inactive_fg")) + (show_graphs ? (show_gpu_utilization ? string(5, ' ') : graph_bg * 5) : "")
+				+ (not show_gpu_utilization and p_graphs.contains(p.pid) ? Mv::l(5) + c_color + p_graphs.at(p.pid)({(p.cpu_p >= 0.1 and p.cpu_p < 5 ? 5ll : (long long)round(p.cpu_p))}, data_same) : "") + end + ' '
 				+ c_color + rjust(cpu_str, 4) + "  " + end;
 			if (lc++ > height - 5) break;
 			else if (lc > height - 5 and proc_banner_shown) break;
