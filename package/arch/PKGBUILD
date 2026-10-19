@@ -1,7 +1,7 @@
 pkgname=btop-gpu-sort-git
-pkgver=1.4.7.r1686.gbebbcc8
+pkgver=1.4.7.r1688.gef62a0e
 pkgrel=1
-_commit=bebbcc85058ff75254780fe7ffd1da4ba7ccd3e4
+_commit=ef62a0edaef6ee24020174af90d31261396a4f60
 pkgdesc='Resource monitor with GPU sorting and local inference, Ollama, and per-server GPU telemetry'
 arch=('x86_64')
 url='https://github.com/infyrno1010101/btop'
