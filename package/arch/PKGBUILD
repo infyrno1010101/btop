@@ -6,6 +6,7 @@ pkgdesc='Resource monitor with GPU sorting, AI workload grouping, and local infe
 arch=('x86_64')
 url='https://github.com/infyrno1010101/btop'
 license=('Apache-2.0' 'MIT')
+options=('!debug' '!lto')
 depends=('gcc-libs' 'glibc')
 makedepends=('cmake' 'git')
 provides=("btop=1.4.7")
