@@ -16,7 +16,13 @@
 > See the
 > [AI workload guide](docs/btop-gpu.md#ai-workload-awareness).
 >
+> In development for **btop-gpu 1.2.0**: passive Ollama loaded-model/VRAM
+> telemetry and optional per-connection PID mapping with aggregated process,
+> GPU-utilization, and VRAM totals. Ollama token rates remain explicitly unavailable
+> because its read-only API does not expose server-wide token counters.
+>
 > Release notes: [btop-gpu 1.1.0](docs/releases/btop-gpu-v1.1.0.md)
+> · [1.2.0 development notes](docs/releases/btop-gpu-v1.2.0-dev.md)
 > · [Remaining work](docs/ROADMAP.md)
 > · [GitHub releases](https://github.com/infyrno1010101/btop/releases)
 > · Arch package recipe: [`package/arch`](package/arch)

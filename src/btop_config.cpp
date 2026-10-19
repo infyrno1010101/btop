@@ -128,12 +128,12 @@ namespace Config {
 		{"ai_llama_endpoint", "#* Optional single-server endpoint: 127.0.0.1:port or localhost:port. Empty disables this connection.\n"
 			"#* ai_servers_file overrides this setting. Requires --metrics; loopback only; no router mode."},
 		{"ai_llama_live", "#* Default live rate polling; connections may override it.\n"
-			"#* llama.cpp uses /slots; vLLM uses counter deltas; SGLang uses its throughput gauge."},
+			"#* llama.cpp uses /slots; vLLM uses counter deltas; SGLang uses its throughput gauge; Ollama has no passive token counters."},
 		{"ai_panel", "#* Show the dedicated inference panel for the configured server. Shift+A toggles compact view.\n"
 			"#* Short process panels automatically use the compact status row."},
 		{"ai_servers_file", "#* Optional absolute path to a JSON array of up to eight named inference connections.\n"
 			"#* Overrides ai_llama_endpoint/key_file. Reloaded in background; [ and ] switch servers.\n"
-			"#* Each entry has endpoint, optional name, runtime (llama.cpp, vllm, or sglang), api_key_file, and live. Never store keys inline."},
+			"#* Each entry has endpoint, optional name, runtime (llama.cpp, vllm, sglang, or ollama), api_key_file, live, and optional pid. Never store keys inline."},
 		{"proc_sorting",		"#* Processes sorting, \"pid\" \"program\" \"arguments\" \"threads\" \"user\" \"memory\" \"cpu lazy\" \"cpu direct\",\n"
 								"#* and, when supported, \"gpu\" and \"gpu memory\". \"cpu lazy\" sorts top process over time (easier to follow),\n"
 								"#* while \"cpu direct\" updates the top process directly."},

@@ -2,6 +2,8 @@
 
 The 1.1 series contains GPU process sorting, workload grouping, optional local
 llama.cpp/vLLM/SGLang inference adapters, multi-server navigation, and histories.
+The 1.2 development branch adds passive Ollama loaded-model/VRAM telemetry and
+explicit per-connection PID association with process, GPU, and VRAM totals.
 
 ## Validation
 
@@ -12,11 +14,9 @@ llama.cpp/vLLM/SGLang inference adapters, multi-server navigation, and histories
 
 ## Optional future features
 
-- Ollama inference telemetry: first establish a passive source for token timing.
-  Monitoring must not create inference requests merely to obtain statistics.
+- Ollama token timing if its upstream API adds passive server-wide counters.
+  Current support deliberately reports token rates as unavailable.
 - Remote HTTP/TLS endpoints: verified certificates, explicit credentials, bounded
   name resolution, and handling of endpoint changes without blocking rendering.
-- Explicit connection-to-process association and per-server GPU/VRAM totals.
-  Avoid guessing ownership from a shared port or attributing unrelated jobs.
 
 These items are not advertised as implemented in 1.1.0.

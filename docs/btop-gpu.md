@@ -263,8 +263,9 @@ These are command-line hints, not verified job identities. Generic Python script
 renamed binaries, wrapper commands, and some worker processes remain unclassified.
 A distributed launcher is labeled `distributed`, not assumed to be training.
 Command lines are subject to the collector's existing length and caching limits.
-The optional llama.cpp adapter below provides server-wide inference metrics.
-Model metadata and training progress are not yet collected.
+The optional server adapters below provide inference and model telemetry. Ollama
+loaded-model metadata is collected from its read-only API; training progress is
+not collected.
 
 ### AI workload view (Linux)
 
@@ -439,8 +440,10 @@ to work for one server. For multiple connections, create a JSON file:
 [
   {
     "name": "Primary",
+    "runtime": "llama.cpp",
     "endpoint": "127.0.0.1:8000",
     "api_key_file": "/path/to/primary-api-key",
+    "pid": 12345,
     "live": true
   },
   {
@@ -460,7 +463,7 @@ ai_servers_file = "/absolute/path/to/ai-servers.json"
 ```
 
 A [connections example](examples/ai-servers.json) is included in the repository.
-Replace the ports and key-file paths with your servers' actual settings.
+Replace the ports, key-file paths, and optional PIDs with your servers' actual settings.
 Omit `api_key_file` or set it to an empty string for an unauthenticated server.
 Credentials are never inherited from another connection or from the legacy
 single-server key setting. Put only paths in this JSON file; inline API keys
@@ -495,16 +498,23 @@ are rejected.
   defaults to the global `ai_llama_live` setting, with per-connection overrides.
   Key-file paths and the connections-file path must be absolute. Unknown fields,
   oversized files (more than 64 KiB), and deeply nested JSON are rejected.
+- An optional positive integer `pid` explicitly associates a connection with a
+  process. btop aggregates that process and members of its detected workload job,
+  including per-process GPU utilization and VRAM reported by the active GPU
+  backend. If the PID exits or is reused outside that job, the panel reports it as
+  missing until the connections file is updated. No process is guessed from a
+  port, name, or endpoint. GPU percentages are summed process samples and can
+  exceed 100% across devices; shared VRAM allocations are not deduplicated.
 
 No servers are discovered, started, or restarted automatically. Configure only
-the endpoints you want btop to poll. These connections still represent server
-metrics independently of process grouping or the selected PID.
+the endpoints you want btop to poll. Server telemetry remains independent of
+process mapping; a missing or stale PID does not stop endpoint polling.
 
 #### vLLM connections (Linux)
 
 Set `"runtime": "vllm"` on a connection to read vLLM's `/metrics` endpoint.
-Omitting `runtime` selects `"llama.cpp"`; `"sglang"` is also supported as
-described below. Other runtime names are rejected.
+Omitting `runtime` selects `"llama.cpp"`; `"sglang"` and `"ollama"` are also
+supported as described below. Other runtime names are rejected.
 The legacy `ai_llama_endpoint` setting continues to select llama.cpp only.
 For example, a mixed connections file can contain:
 
@@ -577,6 +587,35 @@ an independent per-token timing measurement. Failed scrapes leave graph gaps.
 See the [SGLang metrics implementation](https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/observability/metrics_collector.py).
 This adapter has mock exporter and terminal coverage; a live SGLang deployment
 has not been validated here.
+
+#### Ollama connections (Linux)
+
+Set `"runtime": "ollama"` to poll Ollama's read-only `GET /api/ps` endpoint:
+
+```json
+{
+  "name": "Local Ollama",
+  "runtime": "ollama",
+  "endpoint": "127.0.0.1:11434",
+  "pid": 12345
+}
+```
+
+The panel reports the number of loaded models, the first model name, and the
+sum of `size_vram` across loaded models. It ignores model digests and unrelated
+response fields. Polling performs only `GET /api/ps`; it never calls generation,
+chat, embedding, or model-load endpoints.
+
+Ollama includes `eval_count`, `eval_duration`, and prompt counts in the final
+response to an inference request, as described in its
+[official usage documentation](https://github.com/ollama/ollama/blob/main/docs/api/usage.mdx).
+It does not expose those values as passive server-wide counters through `/api/ps`,
+and its [official metrics endpoint request](https://github.com/ollama/ollama/issues/3144)
+remains unresolved. btop therefore displays `Tokens: N/A (Ollama has no
+passive API)` instead of creating a request, intercepting a user's response, or
+estimating token speed from GPU activity. The optional `pid` association still
+provides process count, GPU utilization, and VRAM for the Ollama server and its
+detected runner children.
 
 #### API-key file
 

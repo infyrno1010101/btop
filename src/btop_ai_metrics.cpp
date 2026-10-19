@@ -188,6 +188,7 @@ namespace {
 auto runtime_name(std::string_view runtime) -> std::string {
 	if (runtime == "vllm") return "vLLM";
 	if (runtime == "sglang") return "SGLang";
+	if (runtime == "ollama") return "Ollama";
 	return "llama.cpp";
 }
 // SGLang's throughput gauge describes the exporter's window. Its completed
@@ -344,6 +345,7 @@ auto fetch_http(std::string_view endpoint, std::string_view path, std::chrono::m
 	if (code != 200) {
 		result.status = code == 401 or code == 403 ? "authentication required"
 			: (code == 404 or code == 501) and path == "/slots" ? "slots unavailable (enable --slots)"
+			: code == 404 and path == "/api/ps" ? "Ollama /api/ps unavailable"
 			: code == 404 ? "HTTP 404 (enable --metrics)"
 			: code == 501 ? "metrics disabled (enable --metrics)" : "HTTP " + std::to_string(code);
 		return result;
@@ -431,6 +433,24 @@ auto fetch_sglang(std::string_view endpoint, std::chrono::milliseconds budget, s
 	return fetch_exporter(endpoint, budget, key_file, "sglang");
 }
 
+auto fetch_ollama(std::string_view endpoint, std::chrono::milliseconds budget, std::string_view key_file) -> Snapshot {
+	Snapshot result;
+	result.runtime = "ollama";
+	if (loopback_port(endpoint)) result.endpoint = endpoint;
+	const auto response = fetch_http(endpoint, "/api/ps", budget, key_file);
+	result.status = response.status;
+	if (not response.available) return result;
+	const auto parsed = parse_ollama(response.body);
+	if (not parsed) { result.status = "unrecognized Ollama /api/ps response"; return result; }
+	result.loaded_models = parsed->loaded_models;
+	result.model_vram = parsed->model_vram;
+	result.model_name = parsed->model_name;
+	result.server_instance = response.server_instance;
+	result.available = true;
+	result.status = "ready";
+	return result;
+}
+
 auto fetch_slots(std::string_view endpoint, std::chrono::milliseconds budget, std::string_view key_file) -> SlotSnapshot {
 	SlotSnapshot result;
 	auto response = fetch_http(endpoint, "/slots", budget, key_file);
@@ -458,6 +478,44 @@ auto bounded_json(std::string_view body, size_t limit) -> bool {
 	}
 	return depth == 0 and not quoted;
 }
+}
+
+auto parse_ollama(std::string_view body) -> std::optional<Snapshot> {
+	if (not bounded_json(body, 256 * 1024)) return std::nullopt;
+	const auto data = nlohmann::json::parse(body, nullptr, false);
+	if (not data.is_object()) return std::nullopt;
+	const auto models = data.find("models");
+	if (models == data.end() or not models->is_array() or models->size() > 256) return std::nullopt;
+	Snapshot result;
+	result.runtime = "ollama";
+	result.loaded_models = models->size();
+	for (const auto& model : *models) {
+		if (not model.is_object()) return std::nullopt;
+		const auto vram = model.find("size_vram");
+		if (vram == model.end() or not vram->is_number_integer()) return std::nullopt;
+		uint64_t bytes{};
+		if (vram->is_number_unsigned()) bytes = vram->get<uint64_t>();
+		else {
+			const auto signed_bytes = vram->get<int64_t>();
+			if (signed_bytes < 0) return std::nullopt;
+			bytes = static_cast<uint64_t>(signed_bytes);
+		}
+		result.model_vram += std::min(bytes, std::numeric_limits<uint64_t>::max() - result.model_vram);
+		if (result.model_name.empty()) {
+			const auto name = model.find("name");
+			const auto fallback = model.find("model");
+			const auto selected = name != model.end() ? name : fallback;
+			if (selected != model.end()) {
+				if (not selected->is_string()) return std::nullopt;
+				result.model_name = selected->get<std::string>();
+				if (result.model_name.size() > 128 or std::any_of(result.model_name.begin(), result.model_name.end(),
+					[](unsigned char c) { return c < 32 or c == 127; })) return std::nullopt;
+			}
+		}
+	}
+	result.available = true;
+	result.status = "ready";
+	return result;
 }
 
 auto parse_slots(std::string_view body) -> std::optional<std::vector<Slot>> {
@@ -518,7 +576,7 @@ auto parse_connections(std::string_view body, bool default_live) -> std::optiona
 		if (not item.is_object()) return std::nullopt;
 		// Reject typos, especially misplaced inline credentials.
 		for (const auto& key : item.items())
-			if (key.key() != "name" and key.key() != "endpoint" and key.key() != "api_key_file" and key.key() != "live" and key.key() != "runtime")
+			if (key.key() != "name" and key.key() != "endpoint" and key.key() != "api_key_file" and key.key() != "live" and key.key() != "runtime" and key.key() != "pid")
 				return std::nullopt;
 		if (not item.contains("endpoint") or not item["endpoint"].is_string()) return std::nullopt;
 		Connection connection;
@@ -526,7 +584,19 @@ auto parse_connections(std::string_view body, bool default_live) -> std::optiona
 		if (item.contains("runtime")) {
 			if (not item["runtime"].is_string()) return std::nullopt;
 			connection.runtime = item["runtime"].get<std::string>();
-			if (connection.runtime != "llama.cpp" and connection.runtime != "vllm" and connection.runtime != "sglang") return std::nullopt;
+			if (connection.runtime != "llama.cpp" and connection.runtime != "vllm" and connection.runtime != "sglang" and connection.runtime != "ollama") return std::nullopt;
+		}
+		if (item.contains("pid")) {
+			if (not item["pid"].is_number_integer()) return std::nullopt;
+			uint64_t pid{};
+			if (item["pid"].is_number_unsigned()) pid = item["pid"].get<uint64_t>();
+			else {
+				const auto signed_pid = item["pid"].get<int64_t>();
+				if (signed_pid <= 0) return std::nullopt;
+				pid = static_cast<uint64_t>(signed_pid);
+			}
+			if (pid == 0 or pid > std::numeric_limits<int>::max()) return std::nullopt;
+			connection.process_pid = static_cast<size_t>(pid);
 		}
 		const auto port = loopback_port(item["endpoint"].get<std::string>());
 		if (not port or not ports.insert(*port).second) return std::nullopt;
@@ -596,27 +666,83 @@ auto LiveTracker::update(const SlotSnapshot& sample, std::chrono::steady_clock::
 	return result;
 }
 
+auto aggregate_processes(size_t configured_pid, const std::vector<ProcessSample>& processes) -> ProcessUsage {
+	ProcessUsage result;
+	result.configured_pid = configured_pid;
+	result.configured = configured_pid != 0;
+	if (not result.configured) return result;
+	const auto configured = std::find_if(processes.begin(), processes.end(),
+		[configured_pid](const auto& process) { return process.pid == configured_pid; });
+	if (configured == processes.end()) return result;
+	result.available = true;
+	result.root_pid = configured->workload_root == 0 ? configured_pid : configured->workload_root;
+	for (const auto& process : processes) {
+		if (process.pid != result.root_pid and process.workload_root != result.root_pid) continue;
+		++result.process_count;
+		result.gpu_percent += process.gpu_percent;
+		result.gpu_memory += std::min(process.gpu_memory, std::numeric_limits<uint64_t>::max() - result.gpu_memory);
+	}
+	return result;
+}
+
+namespace {
+auto display_bytes(uint64_t bytes, bool compact = false) -> std::string {
+	constexpr double gib = 1024.0 * 1024.0 * 1024.0;
+	constexpr double mib = 1024.0 * 1024.0;
+	constexpr double kib = 1024.0;
+	if (bytes >= static_cast<uint64_t>(gib))
+		return compact ? fmt::format("{:.1f}G", bytes / gib) : fmt::format("{:.1f} GiB", bytes / gib);
+	if (bytes >= static_cast<uint64_t>(mib))
+		return compact ? fmt::format("{:.0f}M", bytes / mib) : fmt::format("{:.0f} MiB", bytes / mib);
+	if (bytes >= static_cast<uint64_t>(kib))
+		return compact ? fmt::format("{:.0f}K", bytes / kib) : fmt::format("{:.0f} KiB", bytes / kib);
+	return compact ? fmt::format("{}B", bytes) : fmt::format("{} B", bytes);
+}
+
+auto process_text(const ProcessUsage& process, bool compact = false) -> std::string {
+	if (not process.configured) return {};
+	if (not process.available) return "PID " + std::to_string(process.configured_pid) + ": not found";
+	if (compact) {
+		const auto pid = process.root_pid == process.configured_pid ? std::to_string(process.configured_pid)
+			: std::to_string(process.configured_pid) + ">" + std::to_string(process.root_pid);
+		return "PID " + pid + " " + std::to_string(process.process_count) + "p | GPU "
+			+ fmt::format("{:.0f}%", process.gpu_percent) + " | VRAM " + display_bytes(process.gpu_memory, true);
+	}
+	const auto pid = process.root_pid == process.configured_pid ? std::to_string(process.configured_pid)
+		: std::to_string(process.configured_pid) + " (job " + std::to_string(process.root_pid) + ")";
+	return "PID " + pid + " | " + std::to_string(process.process_count) + " proc | GPU "
+		+ fmt::format("{:.1f}%", process.gpu_percent) + " | VRAM " + display_bytes(process.gpu_memory);
+}
+} // namespace
+
 auto summary(const Snapshot& sample) -> std::string {
 	std::string prefix = runtime_name(sample.runtime);
 	if (sample.server_count > 1) prefix += " [" + std::to_string(sample.server_index + 1) + "/" + std::to_string(sample.server_count) + "]";
 	if (not sample.server_name.empty()) prefix += " " + sample.server_name;
 	if (not sample.endpoint.empty()) prefix += " " + sample.endpoint;
+	const auto process = process_text(sample.process, true);
+	const auto process_suffix = process.empty() ? std::string{} : " | " + process;
+	if (sample.runtime == "ollama") {
+		if (not sample.available) return prefix + ": " + sample.status + process_suffix;
+		return prefix + " | models " + std::to_string(sample.loaded_models) + " | model vram " + display_bytes(sample.model_vram)
+			+ " | tokens N/A (no passive API)" + process_suffix;
+	}
 	if (sample.runtime == "vllm" or sample.runtime == "sglang") {
-		if (not sample.available) return prefix + ": " + sample.status;
+		if (not sample.available) return prefix + ": " + sample.status + process_suffix;
 		auto count = [](std::optional<double> v) { return v ? fmt::format("{:.0f}", *v) : "N/A"; };
 		const auto rate = sample.live.tps ? fmt::format("{:.1f}", *sample.live.tps) : "N/A";
 		return prefix + (sample.runtime == "sglang" ? " | gen(exporter) " : " | rate ") + rate + " tok/s | active " + count(sample.values.active)
-			+ " | queue " + count(sample.values.queued) + " | total out " + count(sample.values.generated_tokens);
+			+ " | queue " + count(sample.values.queued) + " | total out " + count(sample.values.generated_tokens) + process_suffix;
 	}
 	if (sample.live.enabled and sample.live.available) {
 		const auto speed = sample.live.tps ? fmt::format("{:.1f}", *sample.live.tps) : "N/A (sampling)";
 		const auto queued = sample.available and sample.values.queued ? fmt::format("{:.0f}", *sample.values.queued) : "N/A";
 		return prefix + " | live " + speed + " tok/s | out " + std::to_string(sample.live.output_tokens)
 			+ " | active " + std::to_string(sample.live.active_slots) + " | queue " + queued
-			+ " | prompt " + (sample.live.prompt_processed ? std::to_string(*sample.live.prompt_processed) : "N/A");
+			+ " | prompt " + (sample.live.prompt_processed ? std::to_string(*sample.live.prompt_processed) : "N/A") + process_suffix;
 	}
 	const auto live_status = sample.live.enabled ? " | live N/A: " + sample.live.status : std::string{};
-	if (not sample.available) return prefix + ": " + sample.status + live_status;
+	if (not sample.available) return prefix + ": " + sample.status + live_status + process_suffix;
 	// Some llama.cpp versions reset the throughput gauge between completions.
 	// Counter ratios remain useful, but describe accumulated work, not live speed.
 	auto rate = sample.values.generation_tps;
@@ -637,7 +763,7 @@ auto summary(const Snapshot& sample) -> std::string {
 	const auto queued = sample.values.queued ? fmt::format("{:.0f}", *sample.values.queued) : "N/A";
 	const auto tokens = sample.values.generated_tokens
 		? " | tokens " + fmt::format("{:.0f}", *sample.values.generated_tokens) : std::string{};
-	return prefix + live_status + " | " + rate_label + " " + speed + " tok/s | active " + active + " | queue " + queued + tokens;
+	return prefix + live_status + " | " + rate_label + " " + speed + " tok/s | active " + active + " | queue " + queued + tokens + process_suffix;
 }
 
 void History::append(const Snapshot& sample) {
@@ -696,14 +822,26 @@ auto panel_lines(const Snapshot& sample) -> std::vector<std::string> {
 		if (not value) return "N/A";
 		return *value < 100000 ? fmt::format("{:.0f}", *value) : fmt::format("{:.3g}", *value);
 	};
+	if (sample.runtime == "ollama") {
+		const auto models = sample.available ? std::to_string(sample.loaded_models) : "N/A";
+		const auto model = sample.model_name.empty() ? std::string{} : " | " + sample.model_name
+			+ (sample.loaded_models > 1 ? " +" + std::to_string(sample.loaded_models - 1) : "");
+		return {"Ollama: " + sample.endpoint + (sample.server_name.empty() ? "" : " | " + sample.server_name),
+			"Loaded models: " + models + model,
+			"Model VRAM: " + (sample.available ? display_bytes(sample.model_vram) : "N/A"),
+			"Tokens: N/A (Ollama has no passive API)",
+			sample.process.configured ? process_text(sample.process, true) : not sample.available ? "Status: " + sample.status : "Process: not mapped"};
+	}
 	if (sample.runtime == "vllm" or sample.runtime == "sglang") {
 		const auto rate = sample.live.tps ? fmt::format("{:.1f}", *sample.live.tps) + " tok/s" : "N/A";
-		return {runtime_name(sample.runtime) + ": " + sample.endpoint + (sample.server_name.empty() ? "" : " | " + sample.server_name),
+		auto lines = std::vector<std::string>{runtime_name(sample.runtime) + ": " + sample.endpoint + (sample.server_name.empty() ? "" : " | " + sample.server_name),
 			(sample.runtime == "sglang" ? "Gen(exporter): " : "Rate: ") + rate,
 			"Active: " + count(sample.values.active) + " | Queue: " + count(sample.values.queued),
 			"Total out: " + count(sample.values.generated_tokens) + " | Prompt: " + count(sample.values.prompt_tokens),
 			not sample.available ? "Status: " + sample.status : not sample.live.enabled ? "Rate polling off" :
 				sample.live.tps ? (sample.runtime == "sglang" ? "Rate from exporter window" : "Rate from exported counter deltas") : "Rate: " + sample.live.status};
+		if (sample.process.configured) lines[4] = process_text(sample.process, true);
+		return lines;
 	}
 	auto average = sample.values.generation_tps;
 	std::string label = "Avg(exporter): ";
@@ -735,6 +873,7 @@ auto panel_lines(const Snapshot& sample) -> std::vector<std::string> {
 		lines[4] = sample.available ? average_line : "Metrics: " + sample.status;
 	}
 	else if (sample.live.enabled and sample.available) lines[4] = "Live: " + sample.live.status;
+	if (sample.process.configured) lines[4] = process_text(sample.process, true);
 	return lines;
 }
 
@@ -784,6 +923,7 @@ public:
 					const auto version = revision;
 					guard.unlock();
 					auto result = provider == "llama.cpp" ? fetch_llama(target, 250ms, credential_path)
+						: provider == "ollama" ? fetch_ollama(target, 250ms, credential_path)
 						: fetch_exporter(target, 250ms, credential_path, provider);
 					SlotSnapshot slots;
 					if (collect_live and provider == "llama.cpp") slots = fetch_slots(target, 250ms, credential_path);
@@ -794,7 +934,11 @@ public:
 						if (collect_live) {
 							if (provider == "vllm") result.live = counter_tracker.update(result, sampled_at);
 							else if (provider == "sglang") result.live = exported_rate(result);
-							else result.live = tracker.update(slots, sampled_at);
+							else if (provider == "llama.cpp") result.live = tracker.update(slots, sampled_at);
+							else {
+								result.live.enabled = true;
+								result.live.status = "Ollama has no passive token counters";
+							}
 						}
 						history.append(result);
 						result.history = history.values();
@@ -857,6 +1001,7 @@ class Connections {
 	struct Entry {
 		Connection config;
 		std::shared_ptr<Poller> poller;
+		ProcessUsage process;
 	};
 	std::mutex mutex;
 	std::condition_variable_any changed;
@@ -891,7 +1036,9 @@ class Connections {
 				});
 				auto source = old == previous.end() ? std::make_shared<Poller>() : old->poller;
 				source->configure(connection.endpoint, connection.key_file, connection.live, connection.runtime);
-				next.push_back({connection, std::move(source)});
+				auto process = old == previous.end() ? ProcessUsage{} : old->process;
+				if (process.configured_pid != connection.process_pid) process = {};
+				next.push_back({connection, std::move(source), process});
 			}
 			lock.lock();
 			if (version == revision and not stop.stop_requested()) {
@@ -936,6 +1083,7 @@ public:
 		result.server_name = entries[selected].config.name;
 		result.server_index = selected;
 		result.server_count = entries.size();
+		result.process = entries[selected].process;
 		return result;
 	}
 	auto snapshots() -> std::vector<Snapshot> {
@@ -947,6 +1095,7 @@ public:
 			value.server_name = entries[i].config.name;
 			value.server_index = i;
 			value.server_count = entries.size();
+			value.process = entries[i].process;
 			result.push_back(std::move(value));
 		}
 		return result;
@@ -956,6 +1105,11 @@ public:
 		if (pending or entries.empty()) return;
 		if (direction > 0) selected = (selected + 1) % entries.size();
 		else if (direction < 0) selected = selected == 0 ? entries.size() - 1 : selected - 1;
+	}
+	void update_processes(const std::vector<ProcessSample>& processes) {
+		std::lock_guard lock(mutex);
+		for (auto& entry : entries)
+			entry.process = aggregate_processes(entry.config.process_pid, processes);
 	}
 	void shutdown() {
 		if (loader.joinable()) {
@@ -985,5 +1139,6 @@ void configure(const std::string& endpoint, const std::string& key_file, bool li
 auto snapshot() -> Snapshot { return connections().snapshot(); }
 auto snapshots() -> std::vector<Snapshot> { return connections().snapshots(); }
 void cycle_server(int direction) { connections().cycle(direction); }
+void update_processes(const std::vector<ProcessSample>& processes) { connections().update_processes(processes); }
 void shutdown() { connections().shutdown(); }
 } // namespace AiMetrics

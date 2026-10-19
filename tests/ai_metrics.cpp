@@ -270,7 +270,7 @@ TEST(ai_metrics, inference_panel_separates_live_counts_and_server_average) {
 
 TEST(ai_metrics, parses_named_connections_and_per_server_settings) {
 	const auto connections = AiMetrics::parse_connections(R"([
-		{"name":"Primary","endpoint":"localhost:8000","api_key_file":"/private/alpha.key"},
+		{"name":"Primary","endpoint":"localhost:8000","api_key_file":"/private/alpha.key","pid":1234},
 		{"name":"Worker","endpoint":"127.0.0.1:8001","live":true}
 	])", false);
 	ASSERT_TRUE(connections);
@@ -278,6 +278,7 @@ TEST(ai_metrics, parses_named_connections_and_per_server_settings) {
 	EXPECT_EQ(connections->at(0).endpoint, "127.0.0.1:8000");
 	EXPECT_EQ(connections->at(0).key_file, "/private/alpha.key");
 	EXPECT_FALSE(connections->at(0).live);
+	EXPECT_EQ(connections->at(0).process_pid, 1234);
 	EXPECT_TRUE(connections->at(1).live);
 	EXPECT_TRUE(connections->at(1).key_file.empty()); // never inherits another server's key
 	EXPECT_TRUE(AiMetrics::parse_connections("[]"));
@@ -293,6 +294,9 @@ TEST(ai_metrics, rejects_ambiguous_or_unsafe_connections) {
 		R"([{"name":"same","endpoint":"localhost:8000"},{"name":"same","endpoint":"localhost:8001"}])",
 		R"([{"endpoint":"localhost:8000","api_key":"inline-secret"}])",
 		R"([{"endpoint":"localhost:8000","api_key_file":"relative/key"}])",
+		R"([{"endpoint":"localhost:8000","pid":0}])",
+		R"([{"endpoint":"localhost:8000","pid":-1}])",
+		R"([{"endpoint":"localhost:8000","pid":"123"}])",
 		R"([{"endpoint":"localhost:8000","api_key_file":"/private/key\u0000suffix"}])",
 		R"([{"endpoint":"localhost:8000","name":"\u001b[2J"}])",
 		R"([{"endpoint":"localhost:8000","live":"false"}])"})
@@ -303,6 +307,51 @@ TEST(ai_metrics, rejects_ambiguous_or_unsafe_connections) {
 	EXPECT_FALSE(AiMetrics::parse_connections(many));
 	EXPECT_FALSE(AiMetrics::parse_connections(std::string(65537, ' ')));
 	EXPECT_FALSE(AiMetrics::parse_connections(std::string(33, '[')+std::string(33, ']')));
+}
+
+TEST(ai_metrics, parses_passive_ollama_model_and_vram_telemetry) {
+	const auto sample = AiMetrics::parse_ollama(R"({"models":[
+		{"name":"gemma:latest","size_vram":5368709120,"digest":"private-but-ignored"},
+		{"model":"embed:latest","size_vram":268435456}
+	],"unknown":"ignored"})");
+	ASSERT_TRUE(sample);
+	EXPECT_EQ(sample->runtime, "ollama");
+	EXPECT_EQ(sample->loaded_models, 2);
+	EXPECT_EQ(sample->model_vram, 5637144576ULL);
+	EXPECT_EQ(sample->model_name, "gemma:latest");
+	EXPECT_NE(AiMetrics::summary(*sample).find("tokens N/A (no passive API)"), std::string::npos);
+	for (const auto body : {"{}", R"({"models":{}})", R"({"models":[1]})",
+		R"({"models":[{"name":"bad\u001bname","size_vram":1}]})",
+		R"({"models":[{"name":"x","size_vram":-1}]})"})
+		EXPECT_FALSE(AiMetrics::parse_ollama(body)) << body;
+}
+
+TEST(ai_metrics, explicitly_mapped_process_aggregates_workload_gpu_usage) {
+	const std::vector<AiMetrics::ProcessSample> processes{
+		{100, 100, 4.5, 1024},
+		{101, 100, 25.5, 2048},
+		{102, 100, 10.0, 4096},
+		{200, 200, 80.0, 8192},
+	};
+	const auto usage = AiMetrics::aggregate_processes(101, processes);
+	EXPECT_TRUE(usage.configured);
+	EXPECT_TRUE(usage.available);
+	EXPECT_EQ(usage.configured_pid, 101);
+	EXPECT_EQ(usage.root_pid, 100);
+	EXPECT_EQ(usage.process_count, 3);
+	EXPECT_DOUBLE_EQ(usage.gpu_percent, 40.0);
+	EXPECT_EQ(usage.gpu_memory, 7168);
+	AiMetrics::Snapshot panel;
+	panel.runtime = "ollama";
+	panel.available = true;
+	panel.process = usage;
+	const auto process_line = AiMetrics::panel_lines(panel)[4];
+	EXPECT_LE(process_line.size(), 38);
+	EXPECT_NE(process_line.find("PID 101>100 3p | GPU 40% | VRAM 7K"), std::string::npos);
+	const auto missing = AiMetrics::aggregate_processes(999, processes);
+	EXPECT_TRUE(missing.configured);
+	EXPECT_FALSE(missing.available);
+	EXPECT_FALSE(AiMetrics::aggregate_processes(0, processes).configured);
 }
 
 TEST(ai_metrics, multiple_server_labels_identify_the_selected_source) {
@@ -449,6 +498,23 @@ TEST(ai_metrics, fetches_vllm_without_slots) {
 	EXPECT_EQ(fixture.slot_requests.load(), 0);
 	HttpFixture missing("HTTP/1.0 404 Not Found\r\n\r\n");
 	EXPECT_EQ(AiMetrics::fetch_vllm(missing.endpoint).status.find("--metrics"), std::string::npos);
+}
+
+TEST(ai_metrics, fetches_ollama_ps_without_creating_inference_requests) {
+	HttpFixture fixture(http(R"({"models":[{"name":"llama3:latest","size_vram":4294967296}]})"));
+	const auto sample = AiMetrics::fetch_ollama(fixture.endpoint);
+	ASSERT_TRUE(sample.available) << sample.status;
+	EXPECT_EQ(sample.runtime, "ollama");
+	EXPECT_EQ(sample.loaded_models, 1);
+	EXPECT_EQ(sample.model_vram, 4294967296ULL);
+	EXPECT_EQ(sample.model_name, "llama3:latest");
+	EXPECT_EQ(fixture.requests.load(), 1);
+	EXPECT_EQ(fixture.slot_requests.load(), 0);
+	const auto lines = AiMetrics::panel_lines(sample);
+	EXPECT_EQ(lines[1], "Loaded models: 1 | llama3:latest");
+	EXPECT_EQ(lines[3], "Tokens: N/A (Ollama has no passive API)");
+	HttpFixture missing("HTTP/1.0 404 Not Found\r\n\r\n");
+	EXPECT_EQ(AiMetrics::fetch_ollama(missing.endpoint).status, "Ollama /api/ps unavailable");
 }
 
 TEST(ai_metrics, fetches_real_loopback_http) {

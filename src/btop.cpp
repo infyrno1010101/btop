@@ -95,7 +95,7 @@ namespace Global {
 		{"#801414", "██████╔╝   ██║   ╚██████╔╝██║        ╚═╝    ╚═╝"},
 		{"#000000", "╚═════╝    ╚═╝    ╚═════╝ ╚═╝"},
 	};
-	const string Version = "1.4.7-gpu1.1.0";
+	const string Version = "1.4.7-gpu1.2.0-dev";
 
 	int coreCount;
 	string overlay;
@@ -530,7 +530,9 @@ namespace Runner {
 						gpu_panels.push_back(box.back()-'0');
 
 				vector<Gpu::gpu_info> gpus;
-				if (gpu_in_cpu_panel or gpu_process_sorting or not gpu_panels.empty()) {
+				const bool inference_process_metrics = not Config::getS("ai_llama_endpoint").empty()
+					or not Config::getS("ai_servers_file").empty();
+				if (gpu_in_cpu_panel or gpu_process_sorting or inference_process_metrics or not gpu_panels.empty()) {
 					if (Global::debug) debug_timer("gpu", collect_begin);
 					gpus = Gpu::collect(conf.no_update);
 					if (Global::debug) debug_timer("gpu", collect_done);
@@ -639,6 +641,17 @@ namespace Runner {
 
 						//? Start collect
 						auto proc = Proc::collect(conf.no_update);
+						vector<AiMetrics::ProcessSample> ai_processes;
+						ai_processes.reserve(proc.size());
+						for (const auto& process : proc) {
+							AiMetrics::ProcessSample sample{process.pid, process.workload_root};
+						#if defined(GPU_SUPPORT) && defined(__linux__)
+							sample.gpu_percent = process.gpu_p;
+							sample.gpu_memory = process.gpu_mem;
+						#endif
+							ai_processes.push_back(sample);
+						}
+						AiMetrics::update_processes(ai_processes);
 
 						if (Global::debug) debug_timer("proc", draw_begin);
 

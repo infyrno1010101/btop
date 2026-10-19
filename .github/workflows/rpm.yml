@@ -52,6 +52,7 @@ jobs:
           cmake --build build-tests --parallel 4
           ctest --test-dir build-tests --output-on-failure
           /tmp/btop-tests/bin/python tests/ai_panel_ui.py build-tests/btop
+          /tmp/btop-tests/bin/python tests/ai_ollama_ui.py build-tests/btop
           for runtime in llama.cpp vllm sglang; do
             BTOP_TEST_RUNTIME="$runtime" /tmp/btop-tests/bin/python tests/ai_connections_ui.py build-tests/btop
           done
