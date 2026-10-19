@@ -1,0 +1,9 @@
+ARG RELEASE=8
+FROM docker.io/rockylinux/rockylinux:${RELEASE}
+ARG RELEASE
+RUN if [ "$RELEASE" = 8 ] || [ "$RELEASE" = 9 ]; then \
+      dnf install -y git cmake make rpm-build gcc-toolset-14-gcc-c++; \
+    else \
+      dnf install -y git cmake make rpm-build gcc-c++; \
+    fi && dnf clean all
+WORKDIR /workspace

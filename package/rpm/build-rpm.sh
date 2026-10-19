@@ -18,6 +18,7 @@ git -C "${repo_dir}" archive \
 cp "${spec_file}" "${topdir}/SPECS/btop-gpu.spec"
 
 rpmbuild -ba \
+    --define "_smp_build_ncpus ${RPM_BUILD_JOBS:-4}" \
     --define "_topdir ${topdir}" \
     "${topdir}/SPECS/btop-gpu.spec"
 

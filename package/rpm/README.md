@@ -55,3 +55,20 @@ btop --version
 ```
 
 See the [btop-gpu guide](../../docs/btop-gpu.md) for usage and troubleshooting.
+
+## Reproducible container builds
+
+From the repository root, prepare a Rocky build image (choose 8, 9, or 10):
+
+```bash
+podman build -f package/rpm/Containerfile --build-arg RELEASE=8 -t btop-gpu-build:8 .
+mkdir -p package/release/rocky8
+podman run --rm -v "$PWD:/workspace:ro" -v "$PWD/package/release/rocky8:/out:rw" \
+  -e RPM_TOPDIR=/out -e RPM_BUILD_JOBS=4 btop-gpu-build:8 ./package/rpm/build-rpm.sh
+```
+
+The source archive comes from committed `HEAD`, so commit intended source
+changes before building. `RPM_BUILD_JOBS` defaults to four to bound memory use.
+The release workflow builds all three RPM targets and an Arch package, runs the
+GPU and CPU-only test suites plus terminal tests, then publishes packages and
+SHA-256 checksums only if every job succeeds.

@@ -1,7 +1,7 @@
 Name:           btop-gpu
-Version:        1.0.2
+Version:        1.1.0
 Release:        1%{?dist}
-Summary:        Resource monitor with NVIDIA per-process GPU sorting
+Summary:        Resource monitor with GPU sorting and AI inference monitoring
 
 %global debug_package %{nil}
 
@@ -28,7 +28,8 @@ Obsoletes:      btop < 1.4.8
 
 %description
 btop-gpu is a btop fork that adds NVIDIA per-process GPU utilization and
-framebuffer-memory sorting. It uses NVML from the installed NVIDIA driver at
+framebuffer-memory sorting, AI workload grouping, and optional local inference
+monitoring for llama.cpp, vLLM, and SGLang. It uses NVML from the installed NVIDIA driver at
 runtime and keeps the btop command and configuration format.
 
 %prep
@@ -70,6 +71,10 @@ install -Dpm0644 docs/btop-gpu.md %{buildroot}%{_docdir}/%{name}/README.md
 %{_datadir}/btop/
 
 %changelog
+* Sun Oct 18 2026 Infyrno <infyrno@users.noreply.github.com> - 1.1.0-1
+- Add AI workload grouping and multi-server inference metrics with histories.
+- Include the connection example and bundled JSON parser MIT license.
+
 * Sat Oct 17 2026 Infyrno <infyrno@users.noreply.github.com> - 1.0.2-1
 - Add a RHEL 8 build using GCC Toolset 14.
 - Link the GCC runtime statically on RHEL 8 for compatibility with its system

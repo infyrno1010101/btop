@@ -31,7 +31,7 @@ Packages replace the existing btop executable without installing user
 configuration. Close btop and restart it after upgrading. The connection example
 is installed under `/usr/share/btop/examples/ai-servers.json`.
 
-See [the guide](../btop-gpu.md) for requirements, key-file configuration,
+See [the guide](https://github.com/infyrno1010101/btop/blob/btop-gpu-v1.1.0/docs/btop-gpu.md) for requirements, key-file configuration,
 shortcuts, and metric semantics. The bundled nlohmann/json MIT license is
 installed with the program.
 

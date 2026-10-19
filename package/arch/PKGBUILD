@@ -1,14 +1,14 @@
 pkgname=btop-gpu-sort-git
-pkgver=1.4.7.r113.ga9681f2
-pkgrel=2
-_commit=a9681f27563585e415877ae1d0c36713a35d4803
-pkgdesc='Resource monitor with NVIDIA per-process GPU utilization and VRAM sorting'
+pkgver=1.4.7.r1681.g4d3f414
+pkgrel=1
+_commit=4d3f41433a87c447cdb1cd7160aada27a57c6ba5
+pkgdesc='Resource monitor with GPU sorting, AI workload grouping, and local inference monitoring'
 arch=('x86_64')
 url='https://github.com/infyrno1010101/btop'
-license=('Apache-2.0')
+license=('Apache-2.0' 'MIT')
 depends=('gcc-libs' 'glibc')
 makedepends=('cmake' 'git')
-provides=("btop=${pkgver}")
+provides=("btop=1.4.7")
 conflicts=('btop')
 source=("btop::git+https://github.com/infyrno1010101/btop.git#commit=${_commit}")
 sha256sums=('SKIP')
@@ -19,9 +19,10 @@ build() {
 		-B build \
 		-DBTOP_GPU=ON \
 		-DBUILD_TESTING=OFF \
+		-DBTOP_LTO=OFF \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_INSTALL_PREFIX=/usr
-	cmake --build build
+	cmake --build build --parallel "${BTOP_BUILD_JOBS:-4}"
 }
 
 package() {

@@ -1,13 +1,19 @@
-name: RPM packages
+name: Packages and release
+
+permissions:
+  contents: read
 
 on:
   push:
     branches: [gpu-process-sorting]
+    tags: ["btop-gpu-v*"]
     paths:
       - "src/**"
       - "include/**"
       - "CMakeLists.txt"
       - "package/rpm/**"
+      - "package/arch/**"
+      - "tests/**"
       - ".github/workflows/rpm.yml"
   pull_request:
     paths:
@@ -15,10 +21,41 @@ on:
       - "include/**"
       - "CMakeLists.txt"
       - "package/rpm/**"
+      - "package/arch/**"
+      - "tests/**"
       - ".github/workflows/rpm.yml"
   workflow_dispatch:
 
 jobs:
+  validate:
+    name: Linux tests (GPU ${{ matrix.gpu }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu: ["ON", "OFF"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install test requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14 cmake libgtest-dev python3-venv
+          python3 -m venv /tmp/btop-tests
+          /tmp/btop-tests/bin/pip install pyte
+      - name: Compile and test
+        env:
+          CXX: g++-14
+        run: |
+          cmake -S . -B build-tests -DBTOP_GPU=${{ matrix.gpu }} -DBUILD_TESTING=ON -DBTOP_LTO=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-tests --parallel 4
+          ctest --test-dir build-tests --output-on-failure
+          /tmp/btop-tests/bin/python tests/ai_panel_ui.py build-tests/btop
+          for runtime in llama.cpp vllm sglang; do
+            BTOP_TEST_RUNTIME="$runtime" /tmp/btop-tests/bin/python tests/ai_connections_ui.py build-tests/btop
+          done
+
   build:
     name: Rocky Linux ${{ matrix.release }}
     runs-on: ubuntu-latest
@@ -35,6 +72,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Trust the container checkout
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -50,7 +88,7 @@ jobs:
       - name: Build RPM and source RPM
         run: ./package/rpm/build-rpm.sh
 
-      - name: Inspect package
+      - name: Inspect and install package
         run: |
           rpm_file=$(find package/rpm/rpmbuild/RPMS -name 'btop-gpu-*.rpm' -type f | head -n1)
           rpm -qip "${rpm_file}"
@@ -62,3 +100,65 @@ jobs:
           path: |
             package/rpm/rpmbuild/RPMS/**/*.rpm
             package/rpm/rpmbuild/SRPMS/*.rpm
+
+  arch:
+    name: Arch Linux package
+    if: startsWith(github.ref, 'refs/tags/btop-gpu-v')
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build requirements
+        run: pacman -Syu --noconfirm git cmake
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build as unprivileged user
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- bash -c 'cd "$1/package/arch" && makepkg --cleanbuild --noconfirm' _ "$GITHUB_WORKSPACE"
+      - name: Install and inspect
+        run: |
+          pacman -U --noconfirm package/arch/*.pkg.tar.zst
+          btop --version
+          test -f /usr/share/btop/examples/ai-servers.json
+          test -f /usr/share/btop/licenses/LICENSE-jsonhpp
+      - uses: actions/upload-artifact@v7
+        with:
+          name: btop-gpu-arch-package
+          path: package/arch/*.pkg.tar.zst
+
+  publish:
+    name: Publish validated release
+    if: startsWith(github.ref, 'refs/tags/btop-gpu-v')
+    needs: [validate, build, arch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Publish packages with checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          expected_tag="btop-gpu-v$(awk '$1 == "Version:" { print $2; exit }' package/rpm/btop-gpu.spec)"
+          test "$RELEASE_TAG" = "$expected_tag"
+          test "$(find release-assets -name '*.rpm' -type f | wc -l)" -eq 6
+          test "$(find release-assets -name '*.pkg.tar.zst' -type f | wc -l)" -eq 1
+          cd release-assets
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          cd ..
+          notes="docs/releases/${RELEASE_TAG}.md"
+          test -f "$notes"
+          mapfile -d '' assets < <(find release-assets -type f -print0)
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "btop-gpu ${RELEASE_TAG#btop-gpu-v}" --notes-file "$notes" "${assets[@]}"
+          gh release edit "$RELEASE_TAG" --draft=false --latest
