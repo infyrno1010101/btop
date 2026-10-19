@@ -154,11 +154,14 @@ jobs:
           test "$RELEASE_TAG" = "$expected_tag"
           test "$(find release-assets -name '*.rpm' -type f | wc -l)" -eq 6
           test "$(find release-assets -name '*.pkg.tar.zst' -type f | wc -l)" -eq 1
-          cd release-assets
+          mkdir release-files
+          find release-assets -type f -exec cp -t release-files -- {} +
+          cd release-files
           find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          sha256sum --check SHA256SUMS
           cd ..
           notes="docs/releases/${RELEASE_TAG}.md"
           test -f "$notes"
-          mapfile -d '' assets < <(find release-assets -type f -print0)
+          mapfile -d '' assets < <(find release-files -type f -print0)
           gh release create "$RELEASE_TAG" --verify-tag --draft --title "btop-gpu ${RELEASE_TAG#btop-gpu-v}" --notes-file "$notes" "${assets[@]}"
           gh release edit "$RELEASE_TAG" --draft=false --latest
