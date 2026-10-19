@@ -100,3 +100,12 @@ package/arch/pkg/
 package/arch/src/
 package/arch/*.pkg.tar.*
 package/arch/*.src.tar.*
+
+# Local btop settings and inference credentials
+btop.conf
+ai-servers.json
+ai-servers.local.json
+*.key
+*.token
+.env
+.env.*
