@@ -25,6 +25,7 @@ tab-size = 4
 #include <unordered_set>
 
 #include "btop_config.hpp"
+#include "btop_workload.hpp"
 #include "btop_shared.hpp"
 #include "btop_tools.hpp"
 
@@ -202,7 +203,79 @@ bool set_priority(pid_t pid, int priority) {
 		}
 	}
 
+	void assign_workloads(vector<proc_info>& processes) {
+		std::unordered_map<size_t, size_t> by_pid;
+		vector<Workload::Info> hints;
+		hints.reserve(processes.size());
+		for (size_t i = 0; i < processes.size(); ++i) {
+			auto& process = processes[i];
+			by_pid.emplace(process.pid, i);
+			hints.push_back(process.state == 'X' ? Workload::Info{} : Workload::detect(process.cmd));
+			process.workload_root = process.workload_members = 0;
+			process.workload_runtime.clear();
+			process.workload_role.clear();
+		}
+		for (auto& process : processes) {
+			if (process.state == 'X') continue;
+			size_t current = by_pid.at(process.pid);
+			size_t root = processes.size();
+			std::unordered_set<size_t> visited;
+			while (true) {
+				if (not visited.insert(current).second) { root = processes.size(); break; }
+				const auto& ancestor = processes[current];
+				if (ancestor.user != process.user or ancestor.state == 'X') break;
+				if (not hints[current].runtime.empty()) root = current;
+				const auto parent = by_pid.find(ancestor.ppid);
+				if (parent == by_pid.end()) break;
+				current = parent->second;
+			}
+			if (root == processes.size()) continue;
+			process.workload_root = processes[root].pid;
+			process.workload_runtime = hints[root].runtime;
+			process.workload_role = process.pid == process.workload_root ? string(hints[root].role) : "worker";
+			++processes[root].workload_members;
+		}
+	}
+
+	auto workload_label(const proc_info& process) -> string {
+		if (process.workload_runtime.empty()) return Workload::label(process.cmd);
+		string label = "[" + process.workload_runtime + " " + process.workload_role;
+		if (process.pid == process.workload_root)
+			label += "; " + std::to_string(process.workload_members) + (process.workload_members == 1 ? " process" : " processes");
+		else
+			label += "; job " + std::to_string(process.workload_root);
+		return label + "] ";
+	}
+
+	void toggle_workload_view() {
+		// Session-only preset; restoring also preserves the user's original filter.
+		static bool saved_tree = false, saved_aggregate = false;
+		static string saved_filter;
+		if (not Config::getB("proc_workloads")) {
+			saved_tree = Config::getB("proc_tree");
+			saved_aggregate = Config::getB("proc_aggregate");
+			saved_filter = Config::getS("proc_filter");
+			Config::set("proc_tree", true);
+			Config::set("proc_aggregate", true);
+			Config::set("proc_filter", "ai:"s);
+		} else {
+			Config::set("proc_tree", saved_tree);
+			Config::set("proc_aggregate", saved_aggregate);
+			Config::set("proc_filter", saved_filter);
+		}
+		Config::flip("proc_workloads");
+	}
+
 	auto matches_filter(const proc_info& proc, const std::string& filter) -> bool {
+		if (filter.starts_with("ai:")) {
+			const auto hint = Workload::detect(proc.cmd);
+			const string runtime = proc.workload_runtime.empty() ? string(hint.runtime) : proc.workload_runtime;
+			const string role = proc.workload_role.empty() ? string(hint.role) : proc.workload_role;
+			if (runtime.empty()) return false;
+			const auto query = filter.substr(3);
+			return query.empty() or s_contains_ic(runtime, query)
+				or s_contains_ic(role, query) or s_contains_ic(proc.cmd, query);
+		}
 		if (filter.starts_with("!")) {
 			if (filter.size() == 1) {
 				return true;
@@ -235,6 +308,7 @@ bool set_priority(pid_t pid, int priority) {
 			}
 			else {
 				found = true;
+				cur_proc.filtered = false;
 				cur_depth = 0;
 			}
 		}
@@ -265,7 +339,12 @@ bool set_priority(pid_t pid, int priority) {
 				cur_proc.filtered = true;
 			}
 
-			_tree_gen(p, in_procs, out_procs.back().children, cur_depth + 1, (collapsed or cur_proc.collapsed), filter, found, no_update, should_filter);
+			const bool workload_mode = Config::getB("proc_workloads");
+			const bool same_job = cur_proc.workload_root != 0 and p.workload_root == cur_proc.workload_root;
+			_tree_gen(p, in_procs, out_procs.back().children, cur_depth + 1,
+				(collapsed or cur_proc.collapsed) and (not workload_mode or same_job),
+				filter, found and (not workload_mode or same_job), no_update, should_filter);
+			if (workload_mode and not same_job) continue;
 
 			if (not no_update and not filtering and (collapsed or cur_proc.collapsed)) {
 				//auto& parent = cur_proc;

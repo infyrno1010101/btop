@@ -9,7 +9,16 @@
 > [btop-gpu guide](docs/btop-gpu.md) for requirements, installation, usage, troubleshooting,
 > package maintenance, limitations, and implementation details.
 >
-> Latest release: [`btop-gpu v1.0.2`](https://github.com/infyrno1010101/btop/releases/tag/btop-gpu-v1.0.2)
+> New in **btop-gpu 1.1.0**: **AI workload labels and grouping** (`W`), worker counts,
+> and an optional **llama.cpp/vLLM/SGLang inference panel** (`A`) with live token throughput,
+> request progress, throughput/queue history, and clearly labeled server averages. Monitor up to
+> eight named local servers and switch between them with `[` and `]`.
+> See the
+> [AI workload guide](docs/btop-gpu.md#ai-workload-awareness).
+>
+> Release notes: [btop-gpu 1.1.0](docs/releases/btop-gpu-v1.1.0.md)
+> · [Remaining work](docs/ROADMAP.md)
+> · [GitHub releases](https://github.com/infyrno1010101/btop/releases)
 > · Arch package recipe: [`package/arch`](package/arch)
 > · RHEL-compatible RPM recipe: [`package/rpm`](package/rpm)
 > · GPU issue report: [`gpu_sorting_bug.md`](.github/ISSUE_TEMPLATE/gpu_sorting_bug.md)

@@ -91,3 +91,12 @@ cmake-build-*
 
 # Local RPM build output
 package/rpm/rpmbuild/
+
+# Python terminal-test caches and release artifacts
+__pycache__/
+*.pyc
+package/release/
+package/arch/pkg/
+package/arch/src/
+package/arch/*.pkg.tar.*
+package/arch/*.src.tar.*

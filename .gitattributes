@@ -1,0 +1,3 @@
+
+# Preserve context lines in the bundled upstream backport patch.
+include/nlohmann/json-deep-nesting.patch -whitespace

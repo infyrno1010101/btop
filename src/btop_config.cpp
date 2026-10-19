@@ -33,6 +33,7 @@ tab-size = 4
 #include <sys/statvfs.h>
 
 #include "btop_config.hpp"
+#include "btop_ai_metrics.hpp"
 #include "btop_log.hpp"
 #include "btop_shared.hpp"
 #include "btop_tools.hpp"
@@ -122,6 +123,17 @@ namespace Config {
 
 		{"update_ms", 			"#* Update time in milliseconds, recommended 2000 ms or above for better sample times for graphs."},
 
+		{"ai_llama_api_key_file", "#* Optional single-server API-key file; never put the key itself in this config.\n"
+			"#* A single Bearer token, reloaded each scrape. Empty sends no Authorization header."},
+		{"ai_llama_endpoint", "#* Optional single-server endpoint: 127.0.0.1:port or localhost:port. Empty disables this connection.\n"
+			"#* ai_servers_file overrides this setting. Requires --metrics; loopback only; no router mode."},
+		{"ai_llama_live", "#* Default live rate polling; connections may override it.\n"
+			"#* llama.cpp uses /slots; vLLM uses counter deltas; SGLang uses its throughput gauge."},
+		{"ai_panel", "#* Show the dedicated inference panel for the configured server. Shift+A toggles compact view.\n"
+			"#* Short process panels automatically use the compact status row."},
+		{"ai_servers_file", "#* Optional absolute path to a JSON array of up to eight named inference connections.\n"
+			"#* Overrides ai_llama_endpoint/key_file. Reloaded in background; [ and ] switch servers.\n"
+			"#* Each entry has endpoint, optional name, runtime (llama.cpp, vllm, or sglang), api_key_file, and live. Never store keys inline."},
 		{"proc_sorting",		"#* Processes sorting, \"pid\" \"program\" \"arguments\" \"threads\" \"user\" \"memory\" \"cpu lazy\" \"cpu direct\",\n"
 								"#* and, when supported, \"gpu\" and \"gpu memory\". \"cpu lazy\" sorts top process over time (easier to follow),\n"
 								"#* while \"cpu direct\" updates the top process directly."},
@@ -282,6 +294,9 @@ namespace Config {
 		{"graph_symbol_mem", "default"},
 		{"graph_symbol_net", "default"},
 		{"graph_symbol_proc", "default"},
+		{"ai_llama_endpoint", ""},
+		{"ai_llama_api_key_file", ""},
+		{"ai_servers_file", ""},
 		{"proc_sorting", "cpu lazy"},
 		{"cpu_graph_upper", "Auto"},
 		{"cpu_graph_lower", "Auto"},
@@ -363,6 +378,9 @@ namespace Config {
 		{"lowcolor", false},
 		{"show_detailed", false},
 		{"proc_filtering", false},
+		{"proc_workloads", false},
+		{"ai_llama_live", true},
+		{"ai_panel", true},
 		{"proc_aggregate", false},
 		{"pause_proc_list", false},
 		{"keep_dead_proc_usage", false},
@@ -627,6 +645,11 @@ namespace Config {
 		else if (name == "presets" and not presetsValid(value))
 			return false;
 
+		else if (name == "ai_llama_endpoint" and not value.empty() and not AiMetrics::loopback_port(value))
+			validError = "Use 127.0.0.1:port or localhost:port, or leave empty to disable.";
+		else if (name == "ai_servers_file" and not value.empty() and (value.front() != '/' or value.size() > 4096
+			or std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 32 or c == 127; })))
+			validError = "Use an absolute path to a connections file, or leave empty for the single-server settings.";
 		else if (name == "cpu_core_map") {
 			const auto maps = ssplit(value);
 			bool all_good = true;

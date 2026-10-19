@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Primary",
+    "runtime": "llama.cpp",
+    "endpoint": "127.0.0.1:8000",
+    "api_key_file": "/path/to/primary-api-key",
+    "live": true
+  },
+  {
+    "name": "Worker",
+    "runtime": "vllm",
+    "endpoint": "127.0.0.1:8001",
+    "api_key_file": "/path/to/worker-api-key",
+    "live": true
+  },
+  {
+    "name": "SGLang",
+    "runtime": "sglang",
+    "endpoint": "127.0.0.1:30000",
+    "live": true
+  }
+]

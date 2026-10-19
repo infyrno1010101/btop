@@ -391,6 +391,11 @@ namespace Proc {
 		string name{};          // defaults to ""
 		string cmd{};           // defaults to ""
 		string short_cmd{};     // defaults to ""
+		// Command-line runtime hints inherited only along same-user process ancestry.
+		size_t workload_root{};
+		size_t workload_members{};
+		string workload_runtime{};
+		string workload_role{};
 		size_t threads{};
 		int name_offset{};
 		string user{};          // defaults to ""
@@ -451,6 +456,10 @@ namespace Proc {
 	//* Recursive sort of process tree
 	void tree_sort(vector<tree_proc>& proc_vec, const string& sorting, bool reverse, bool paused,
 					int& c_index, const int index_max, bool collapsed = false);
+
+	void assign_workloads(vector<proc_info>& processes);
+	auto workload_label(const proc_info& process) -> string;
+	void toggle_workload_view();
 
 	auto matches_filter(const proc_info& proc, const std::string& filter) -> bool;
 

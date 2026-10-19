@@ -3609,6 +3609,18 @@ namespace Proc {
 		}
 	#endif
 
+		// Rebuild membership from this snapshot; PID reuse and exited launchers cannot retain old jobs.
+		assign_workloads(current_procs);
+		if (show_detailed) {
+			const auto process = rng::find(current_procs, detailed_pid, &proc_info::pid);
+			if (process != current_procs.end()) {
+				detailed.entry.workload_root = process->workload_root;
+				detailed.entry.workload_members = process->workload_members;
+				detailed.entry.workload_runtime = process->workload_runtime;
+				detailed.entry.workload_role = process->workload_role;
+			}
+		}
+
 		//* Match filter if defined
 		if (should_filter) {
 			filter_found = 0;
@@ -3629,6 +3641,18 @@ namespace Proc {
 		//* Sort processes
 		if ((sorted_change or tree_mode_change) or (not no_update and not pause_proc_list)) {
 			proc_sorter(current_procs, sorting, reverse, tree);
+		}
+
+		// Independent jobs are forest roots even if their launchers have an OS parent.
+		// Restore the real PPIDs after rendering metadata is built.
+		std::unordered_map<size_t, uint64_t> workload_parents;
+		if (tree and Config::getB("proc_workloads")) {
+			for (auto& process : current_procs) {
+				if (process.workload_root == process.pid and process.workload_root != 0) {
+					workload_parents.emplace(process.pid, process.ppid);
+					process.ppid = 0;
+				}
+			}
 		}
 
 		//* Generate tree view if enabled
@@ -3717,6 +3741,10 @@ namespace Proc {
 			}
 		}
 
+		for (auto& process : current_procs) {
+			if (const auto parent = workload_parents.find(process.pid); parent != workload_parents.end())
+				process.ppid = parent->second;
+		}
 		numpids = (int)current_procs.size() - filter_found;
 
 		return current_procs;

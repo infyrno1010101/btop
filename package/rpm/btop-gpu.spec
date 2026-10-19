@@ -5,7 +5,7 @@ Summary:        Resource monitor with NVIDIA per-process GPU sorting
 
 %global debug_package %{nil}
 
-License:        Apache-2.0
+License:        Apache-2.0 AND MIT
 URL:            https://github.com/infyrno1010101/btop
 Source0:        %{url}/archive/refs/tags/btop-gpu-v%{version}.tar.gz
 

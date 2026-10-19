@@ -33,6 +33,7 @@ tab-size = 4
 #include "btop_shared.hpp"
 #include "btop_menu.hpp"
 #include "btop_draw.hpp"
+#include "btop_ai_metrics.hpp"
 
 using namespace Tools;
 using namespace std::literals; // for operator""s
@@ -343,6 +344,18 @@ namespace Input {
 					Proc::filter = Draw::TextEdit{Config::getS("proc_filter")};
 					old_filter = Proc::filter.text;
 				}
+				else if (key == "W") {
+					Proc::toggle_workload_view();
+					no_update = false;
+					Config::set("update_following", true);
+				}
+				else if (key == "A") {
+					Config::flip("ai_panel");
+					Proc::redraw = true;
+				}
+				else if (key == "[" or key == "]") {
+					AiMetrics::cycle_server(key == "]" ? 1 : -1);
+				}
 				else if (key == "e") {
 					Config::flip("proc_tree");
 					no_update = false;
@@ -394,7 +407,12 @@ namespace Input {
 					redraw = false;
 					const auto& [col, line] = mouse_pos;
 					const int y = (Config::getB("show_detailed") ? Proc::y + 8 : Proc::y);
-					const int height = (Config::getB("show_detailed") ? Proc::height - 8 : Proc::height);
+					const int panel_rows = Proc::ai_panel_rows(Config::getB("show_detailed"));
+					const int height = Proc::height - (Config::getB("show_detailed") ? 8 : 0) - panel_rows;
+					// The inference card is display-only; clicking it must never select
+					// a process row hidden behind the card or invoke its actions.
+					if (panel_rows > 0 and col >= Proc::x + 1 and col < Proc::x + Proc::width - 1
+						and line >= y + height - 1 and line < Proc::y + Proc::height - 1) return;
 					const auto in_proc_box = col >= Proc::x + 1 and col < Proc::x + Proc::width and line >= y + 1 and line < y + height - 1;
 					if (key == "mouse_click") {
 						if (in_proc_box) {
@@ -533,7 +551,7 @@ namespace Input {
 
 				if (not keep_going) {
 					Runner::run("proc", no_update, redraw);
-					Runner::run("cpu", no_update, redraw);
+					if (Cpu::shown) Runner::run("cpu", no_update, redraw);
 					return;
 				}
 			}

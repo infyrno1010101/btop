@@ -29,6 +29,8 @@ tab-size = 4
 #include <fmt/format.h>
 
 #include "btop_config.hpp"
+#include "btop_ai_metrics.hpp"
+#include "btop_workload.hpp"
 #include "btop_draw.hpp"
 #include "btop_input.hpp"
 #include "btop_log.hpp"
@@ -1624,13 +1626,22 @@ namespace Proc {
 
 	string box;
 
+	bool metrics_configured() {
+		return not Config::getS("ai_llama_endpoint").empty() or not Config::getS("ai_servers_file").empty();
+	}
+
+	int ai_panel_rows(bool show_detailed) {
+		return AiMetrics::panel_rows(width, height - (show_detailed ? 8 : 0),
+			Config::getB("ai_panel") and metrics_configured());
+	}
+
 	int selection(const std::string_view cmd_key) {
 		auto start = Config::getI("proc_start");
 		auto selected = Config::getI("proc_selected");
 		auto last_selected = Config::getI("proc_last_selected");
 		bool changed = false;
-		int select_max = (Config::getB("show_detailed") ? (Config::getB("proc_banner_shown") ? Proc::select_max - 9 : Proc::select_max - 8) :
-																(Config::getB("proc_banner_shown") ? Proc::select_max - 1 : Proc::select_max));
+		int select_max = Proc::select_max - (Config::getB("show_detailed") ? 8 : 0)
+			- ai_panel_rows(Config::getB("show_detailed")) - (Config::getB("proc_banner_shown") ? 1 : 0);
 
 		// Return the selection from the detailed view to the followed process before moving the selection
 		// Disengage following mode when moving the selection unless paused
@@ -1645,7 +1656,10 @@ namespace Proc {
 				Config::flip("follow_process");
 				Config::set("followed_pid", 0);
 				Config::set("proc_followed", 0);
-				select_max++;
+				const bool compact_metrics = ai_panel_rows(Config::getB("show_detailed")) == 0
+					and metrics_configured();
+				Config::set("proc_banner_shown", compact_metrics);
+				if (not compact_metrics) select_max++;
 			}
 			redraw = true;
 		}
@@ -1729,14 +1743,16 @@ namespace Proc {
 		int followed_pid = Config::getI("followed_pid");
 		int followed = Config::getI("proc_followed");
 		bool should_selection_return_to_followed = Config::getB("should_selection_return_to_followed");
-		auto proc_banner_shown = pause_proc_list or follow_process;
+		const int panel_rows = ai_panel_rows(show_detailed);
+		const bool metrics_shown = metrics_configured() and panel_rows == 0;
+		auto proc_banner_shown = pause_proc_list or follow_process or metrics_shown;
 		Config::set("proc_banner_shown", proc_banner_shown);
 		start = Config::getI("proc_start");
 		selected = Config::getI("proc_selected");
 		const int y = show_detailed ? Proc::y + 8 : Proc::y;
-		const int height = show_detailed ? Proc::height - 8 : Proc::height;
-		int select_max = show_detailed ? (proc_banner_shown ? Proc::select_max - 9 : Proc::select_max - 8) :
-												(proc_banner_shown ? Proc::select_max - 1 : Proc::select_max);
+		const int height = Proc::height - (show_detailed ? 8 : 0) - panel_rows;
+		const int footer_y = Proc::y + Proc::height - 1;
+		int select_max = height - 3 - (proc_banner_shown ? 1 : 0);
 		auto totalMem = Mem::get_totalMem();
 		int numpids = Proc::numpids;
 		if (force_redraw) redraw = true;
@@ -1772,7 +1788,7 @@ namespace Proc {
 			else if (restore_detailed_pid == 0) {
 				Config::set("followed_pid", followed_pid = 0);
 				Config::set("follow_process", follow_process = false);
-				Config::set("proc_banner_shown", proc_banner_shown = pause_proc_list);
+				Config::set("proc_banner_shown", proc_banner_shown = (pause_proc_list or metrics_shown));
 				Config::set("proc_followed", 0);
 				if (not proc_banner_shown) select_max++;
 			}
@@ -1895,7 +1911,7 @@ namespace Proc {
 				out += Mv::to(d_y + 5 + i++, d_x + 1) + l;
 
 				out += Theme::c("main_fg") + Fx::ub;
-				const auto san_cmd = replace_ascii_control(detailed.entry.cmd);
+				const auto san_cmd = workload_label(detailed.entry) + replace_ascii_control(detailed.entry.cmd);
 				const int cmd_size = ulen(san_cmd, true);
 				for (int num_lines = min(3, (int)ceil((double)cmd_size / (d_width - 5))), i = 0; i < num_lines; i++) {
 					out += Mv::to(d_y + 5 + (num_lines == 1 ? 1 : i), d_x + 3)
@@ -1958,32 +1974,32 @@ namespace Proc {
 			const string t_color = (selected == 0 ? Theme::c("inactive_fg") : Theme::c("title"));
 			const string hi_color = (selected == 0 ? Theme::c("inactive_fg") : Theme::c("hi_fg"));
 			int mouse_x = x + 14;
-			out += Mv::to(y + height - 1, x + 1) + title_left_down + Fx::b + hi_color + up_button + Theme::c("title") + " select " + down_button + Fx::ub + title_right_down
+			out += Mv::to(footer_y, x + 1) + title_left_down + Fx::b + hi_color + up_button + Theme::c("title") + " select " + down_button + Fx::ub + title_right_down
 				+ title_left_down + Fx::b + t_color + "info " + hi_color + Symbols::enter + Fx::ub + title_right_down;
-				if (selected > 0) Input::mouse_mappings["info_enter"] = {y + height - 1, mouse_x, 1, 6};
+				if (selected > 0) Input::mouse_mappings["info_enter"] = {footer_y, mouse_x, 1, 6};
 				mouse_x += 8;
 			if (width > 60) {
 				out += title_left_down + Fx::b + hi_color + 't' + t_color + "erminate" + Fx::ub + title_right_down;
-				if (selected > 0) Input::mouse_mappings["t"] = {y + height - 1, mouse_x, 1, 9};
+				if (selected > 0) Input::mouse_mappings["t"] = {footer_y, mouse_x, 1, 9};
 				mouse_x += 11;
 			}
 			if (width > 55) {
 				out += title_left_down + Fx::b + hi_color + (vim_keys ? 'K' : 'k') + t_color + "ill" + Fx::ub + title_right_down;
-				if (selected > 0) Input::mouse_mappings[vim_keys ? "K" : "k"] = {y + height - 1, mouse_x, 1, 4};
+				if (selected > 0) Input::mouse_mappings[vim_keys ? "K" : "k"] = {footer_y, mouse_x, 1, 4};
 				mouse_x += 6;
 			}
 			out += title_left_down + Fx::b + hi_color + 's' + t_color + "ignals" + Fx::ub + title_right_down;
-			if (selected > 0) Input::mouse_mappings["s"] = {y + height - 1, mouse_x, 1, 7};
+			if (selected > 0) Input::mouse_mappings["s"] = {footer_y, mouse_x, 1, 7};
 		    mouse_x += 9;
 		    out += title_left_down + Fx::b + hi_color + 'N' + t_color + "ice" + Fx::ub + title_right_down;
-		    if (selected > 0) Input::mouse_mappings["N"] = {y + height -1, mouse_x, 1, 5};
+		    if (selected > 0) Input::mouse_mappings["N"] = {footer_y, mouse_x, 1, 5};
 			mouse_x += 6;
 			if (width > 72) {
 			    fmt::format_to(std::back_inserter(out), "{}{}{}{}{}{}{}{}",
 			    	title_left_down, follow_process ? Fx::b : "",
 			    	hi_color, 'F', t_color, "ollow",
 			    	Fx::ub, title_right_down);
-			    if (selected > 0) Input::mouse_mappings["F"] = {y + height - 1, mouse_x, 1, 6};
+			    if (selected > 0) Input::mouse_mappings["F"] = {footer_y, mouse_x, 1, 6};
 			}
 
 			//? Labels for fields in list
@@ -1994,7 +2010,7 @@ namespace Proc {
 					+ (cmd_size > 0 ? ljust("Command:", cmd_size) : "") + ' ';
 			else
 				out += Mv::to(y+1, x+1) + Theme::c("title") + Fx::b
-					+ ljust("Tree:", tree_size) + ' ';
+					+ ljust(Config::getB("proc_workloads") ? "AI workloads:" : "Tree:", tree_size) + ' ';
 
 			out += (thread_size > 0 ? Mv::l(4) + "Threads: " : "")
 					+ ljust("User:", user_size) + ' '
@@ -2112,7 +2128,7 @@ namespace Proc {
 				}
 			}
 
-			const auto san_cmd = replace_ascii_control(p.cmd);
+			const auto san_cmd = workload_label(p) + replace_ascii_control(p.cmd);
 
 			if (not p_wide_cmd.contains(p.pid)) p_wide_cmd[p.pid] = ulen(san_cmd) != ulen(san_cmd, true);
 
@@ -2125,13 +2141,15 @@ namespace Proc {
 			}
 			//? Tree view line
 			else {
+				const string display_name = Config::getB("proc_workloads") and p.workload_root == p.pid
+					? p.workload_runtime + " [" + to_string(p.workload_members) + "]" : p.name;
 				const string prefix_pid = p.prefix + to_string(p.pid);
 				int width_left = tree_size;
 				out += Mv::to(y+2+lc, x+1) + g_color + uresize(prefix_pid, width_left) + ' ';
 				width_left -= ulen(prefix_pid);
 				if (width_left > 0) {
-					out += c_color + uresize(p.name, width_left - 1) + end + ' ';
-					width_left -= (ulen(p.name) + 1);
+					out += c_color + uresize(display_name, width_left - 1) + end + ' ';
+					width_left -= (ulen(display_name) + 1);
 				}
 				if (width_left > 7) {
 					const string_view cmd = width_left > 40 ? rtrim(san_cmd) : p.short_cmd;
@@ -2199,7 +2217,8 @@ namespace Proc {
 				Theme::c("proc_banner_fg"), Fx::b,
 				(pause_proc_list and follow_process) ? "Paused list and Following process"
 					: pause_proc_list ? "Process list paused"
-					: "Following process", width - 2,
+					: follow_process ? string("Following process")
+					: uresize(AiMetrics::summary(AiMetrics::snapshot()), width - 2), width - 2,
 				Fx::reset);
 		}
 
@@ -2215,9 +2234,51 @@ namespace Proc {
 		}
 
 		//? Current selection and number of processes
+		if (panel_rows > 0) {
+			const int panel_y = y + height - 1;
+			const auto sample = AiMetrics::snapshot();
+			const bool multiple = sample.server_count > 1;
+			const auto title = multiple ? "AI inference " + to_string(sample.server_index + 1) + "/" + to_string(sample.server_count) + " [A]"
+				: "AI inference [A]";
+			out += Draw::createBox(x + 1, panel_y, width - 2, panel_rows,
+				Theme::c("proc_box"), true, title, multiple ? "[ prev | ] next" : "");
+			const auto lines = AiMetrics::panel_lines(sample);
+			const bool charts_shown = width >= 56;
+			const int text_width = charts_shown ? std::min(38, width - 22) : width - 4;
+			for (size_t row = 0; row < lines.size(); ++row) {
+				out += Mv::to(panel_y + 1 + row, x + 2) + Theme::c(row == 1 ? "title" : "main_fg")
+					+ (row == 1 ? Fx::b : Fx::ub) + ljust(uresize(lines[row], text_width), text_width) + Fx::reset;
+			}
+			if (charts_shown) {
+				const int chart_x = x + 3 + text_width;
+				const int chart_width = width - 5 - text_width;
+				const auto charts = AiMetrics::history_chart(sample.history, chart_width, tty_mode);
+				for (size_t row = 0; row < charts.size(); ++row) {
+					out += Mv::to(panel_y + 1 + row, chart_x - 1) + Theme::c("div_line") + Symbols::v_line
+						+ (row == 0 or row == 3 ? Theme::c("inactive_fg") : Theme::g(row == 4 ? "proc" : "cpu").at(70))
+						+ ljust(uresize(charts[row], chart_width), chart_width, true) + Fx::reset;
+				}
+				out += Mv::to(panel_y + panel_rows - 1, x + width - 12) + Theme::c("inactive_fg") + " ~2s/col " + Fx::reset;
+			}
+			Input::mouse_mappings["A"] = {panel_y, x + 3, 1, static_cast<int>(title.size()) + 2};
+			if (multiple) {
+				Input::mouse_mappings["["] = {panel_y + panel_rows - 1, x + 4, 1, 6};
+				Input::mouse_mappings["]"] = {panel_y + panel_rows - 1, x + 13, 1, 6};
+			}
+			else {
+				Input::mouse_mappings.erase("[");
+				Input::mouse_mappings.erase("]");
+			}
+		}
+		else {
+			Input::mouse_mappings.erase("A");
+			Input::mouse_mappings.erase("[");
+			Input::mouse_mappings.erase("]");
+		}
+
 		string location = to_string(start + (follow_process ? followed : selected)) + '/' + to_string(numpids);
 		string loc_clear = Symbols::h_line * max((size_t)0, 9 - location.size());
-		out += Mv::to(y + height - 1, x+width - 3 - max(9, (int)location.size())) + Fx::ub + Theme::c("proc_box") + loc_clear
+		out += Mv::to(footer_y, x+width - 3 - max(9, (int)location.size())) + Fx::ub + Theme::c("proc_box") + loc_clear
 			+ Symbols::title_left_down + Theme::c("title") + Fx::b + location + Fx::ub + Theme::c("proc_box") + Symbols::title_right_down;
 
 		//? Clear out left over graphs from dead processes at a regular interval

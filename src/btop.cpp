@@ -62,6 +62,7 @@ tab-size = 4
 
 #include "btop_cli.hpp"
 #include "btop_config.hpp"
+#include "btop_ai_metrics.hpp"
 #include "btop_draw.hpp"
 #include "btop_input.hpp"
 #include "btop_log.hpp"
@@ -94,7 +95,7 @@ namespace Global {
 		{"#801414", "██████╔╝   ██║   ╚██████╔╝██║        ╚═╝    ╚═╝"},
 		{"#000000", "╚═════╝    ╚═╝    ╚═════╝ ╚═╝"},
 	};
-	const string Version = "1.4.7";
+	const string Version = "1.4.7-gpu1.1.0";
 
 	int coreCount;
 	string overlay;
@@ -235,6 +236,13 @@ void clean_quit(int sig) {
 #endif
 
 
+	AiMetrics::shutdown();
+	// The AI workload preset must not replace saved tree/aggregate preferences.
+	if (Config::getB("proc_workloads")) {
+		Config::unlock();
+		Proc::toggle_workload_view();
+		Config::unlock();
+	}
 	if (Config::getB("save_config_on_exit")) {
 		Config::write();
 	}
@@ -752,6 +760,8 @@ namespace Runner {
 		}
 		else {
 			Config::unlock();
+			AiMetrics::configure(Config::getS("ai_llama_endpoint"), Config::getS("ai_llama_api_key_file"),
+				Config::getB("ai_llama_live"), Config::getS("ai_servers_file"));
 			Config::lock();
 
 			current_conf = {
@@ -1046,6 +1056,7 @@ static auto configure_tty_mode(std::optional<bool> force_tty) {
 	Theme::setTheme();
 
 	//? Setup signal handlers for CTRL-C, CTRL-Z, resume and terminal resize
+	AiMetrics::configure(""); // Construct before the exit handler to preserve shutdown order.
 	std::atexit(_exit_handler);
 	std::signal(SIGINT, _signal_handler);
 	std::signal(SIGTSTP, _signal_handler);

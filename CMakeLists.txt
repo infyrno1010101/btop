@@ -46,6 +46,7 @@ endif()
 
 add_executable(btop src/main.cpp)
 add_library(libbtop OBJECT
+  src/btop_ai_metrics.cpp
   src/btop.cpp
   src/btop_cli.cpp
   src/btop_config.cpp
@@ -272,6 +273,8 @@ install(FILES "btop.desktop" DESTINATION "share/applications")
 install(FILES "Img/icon.png" DESTINATION "share/icons/hicolor/48x48/apps" RENAME "btop.png")
 install(FILES "Img/icon.svg" DESTINATION "share/icons/hicolor/scalable/apps" RENAME "btop.svg")
 install(DIRECTORY "themes" DESTINATION "share/btop")
+install(FILES "include/nlohmann/LICENSE.MIT" DESTINATION "share/btop/licenses" RENAME "LICENSE-jsonhpp")
+install(FILES "docs/examples/ai-servers.json" DESTINATION "share/btop/examples")
 
 include(CTest)
 if(BUILD_TESTING)

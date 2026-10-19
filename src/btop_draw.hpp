@@ -135,6 +135,7 @@ namespace Draw {
 }
 
 namespace Proc {
+	int ai_panel_rows(bool show_detailed);
 	extern Draw::TextEdit filter;
 	extern std::unordered_map<size_t, Draw::Graph> p_graphs;
 	extern std::unordered_map<size_t, int> p_counters;

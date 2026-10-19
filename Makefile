@@ -371,6 +371,10 @@ install:
 	@mkdir -p $(DESTDIR)$(PREFIX)/share/btop
 	@$(call green,Installing themes to: $(WHITE)$(DESTDIR)$(PREFIX)/share/btop/themes)
 	@cp -pr themes $(DESTDIR)$(PREFIX)/share/btop
+	@mkdir -p $(DESTDIR)$(PREFIX)/share/btop/licenses
+	@cp include/nlohmann/LICENSE.MIT $(DESTDIR)$(PREFIX)/share/btop/licenses/LICENSE-jsonhpp
+	@mkdir -p $(DESTDIR)$(PREFIX)/share/btop/examples
+	@cp docs/examples/ai-servers.json $(DESTDIR)$(PREFIX)/share/btop/examples
 	@$(call green,Installing desktop entry to: ,$(WHITE)$(DESTDIR)$(PREFIX)/share/applications/btop.desktop)
 	@mkdir -p $(DESTDIR)$(PREFIX)/share/applications/
 	@cp -p btop.desktop $(DESTDIR)$(PREFIX)/share/applications/btop.desktop
