@@ -530,8 +530,9 @@ namespace Runner {
 						gpu_panels.push_back(box.back()-'0');
 
 				vector<Gpu::gpu_info> gpus;
-				const bool inference_process_metrics = not Config::getS("ai_llama_endpoint").empty()
-					or not Config::getS("ai_servers_file").empty();
+				const bool inference_process_metrics = not Gpu::gpu_names.empty() and (
+					not Config::getS("ai_llama_endpoint").empty()
+					or not Config::getS("ai_servers_file").empty());
 				if (gpu_in_cpu_panel or gpu_process_sorting or inference_process_metrics or not gpu_panels.empty()) {
 					if (Global::debug) debug_timer("gpu", collect_begin);
 					gpus = Gpu::collect(conf.no_update);
