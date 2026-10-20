@@ -133,7 +133,7 @@ namespace Config {
 			"#* Short process panels automatically use the compact status row."},
 		{"ai_servers_file", "#* Optional absolute path to a JSON array of up to eight named inference connections.\n"
 			"#* Overrides ai_llama_endpoint/key_file. Reloaded in background; [ and ] switch servers.\n"
-			"#* Each entry has endpoint, optional name, runtime (llama.cpp, vllm, sglang, or ollama), api_key_file, live, and optional pid. Never store keys inline."},
+			"#* Each entry has endpoint, optional name, runtime (llama.cpp, vllm, sglang, or ollama), api_key_file, live, and optional integer pid or \"pid\": \"auto\". Never store keys inline."},
 		{"proc_sorting",		"#* Processes sorting, \"pid\" \"program\" \"arguments\" \"threads\" \"user\" \"memory\" \"cpu lazy\" \"cpu direct\",\n"
 								"#* and, when supported, \"gpu\" and \"gpu memory\". \"cpu lazy\" sorts top process over time (easier to follow),\n"
 								"#* while \"cpu direct\" updates the top process directly."},

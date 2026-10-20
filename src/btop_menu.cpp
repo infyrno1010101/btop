@@ -848,7 +848,7 @@ namespace Menu {
 				"",
 				"Up to eight local inference servers.",
 				"llama.cpp, vLLM, SGLang, and Ollama are supported.",
-				"Each can have a name, key file, and mapped PID.",
+				"Each can have a name, key file, and PID or auto mapping.",
 				"[ and ] select the displayed server.",
 				"Overrides single-server settings; empty restores them.",
 				"Reloaded automatically in the background."},

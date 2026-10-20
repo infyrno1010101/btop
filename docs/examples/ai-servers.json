@@ -4,7 +4,7 @@
     "runtime": "llama.cpp",
     "endpoint": "127.0.0.1:8000",
     "api_key_file": "/path/to/primary-api-key",
-    "pid": 12345,
+    "pid": "auto",
     "live": true
   },
   {
@@ -24,7 +24,7 @@
     "name": "Local Ollama",
     "runtime": "ollama",
     "endpoint": "127.0.0.1:11434",
-    "pid": 23456,
+    "pid": "auto",
     "live": true
   }
 ]

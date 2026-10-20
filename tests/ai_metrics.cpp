@@ -302,6 +302,10 @@ TEST(ai_metrics, parses_named_connections_and_per_server_settings) {
 	EXPECT_EQ(connections->at(0).key_file, "/private/alpha.key");
 	EXPECT_FALSE(connections->at(0).live);
 	EXPECT_EQ(connections->at(0).process_pid, 1234);
+	const auto automatic = AiMetrics::parse_connections(R"([{"endpoint":"localhost:9000","pid":"auto"}])");
+	ASSERT_TRUE(automatic);
+	EXPECT_TRUE(automatic->front().process_auto);
+	EXPECT_EQ(automatic->front().process_pid, 0);
 	EXPECT_TRUE(connections->at(1).live);
 	EXPECT_TRUE(connections->at(1).key_file.empty()); // never inherits another server's key
 	EXPECT_TRUE(AiMetrics::parse_connections("[]"));
@@ -320,6 +324,7 @@ TEST(ai_metrics, rejects_ambiguous_or_unsafe_connections) {
 		R"([{"endpoint":"localhost:8000","pid":0}])",
 		R"([{"endpoint":"localhost:8000","pid":-1}])",
 		R"([{"endpoint":"localhost:8000","pid":"123"}])",
+		R"([{"endpoint":"localhost:8000","pid":"discover"}])",
 		R"([{"endpoint":"localhost:8000","api_key_file":"/private/key\u0000suffix"}])",
 		R"([{"endpoint":"localhost:8000","name":"\u001b[2J"}])",
 		R"([{"endpoint":"localhost:8000","live":"false"}])"})
@@ -375,6 +380,15 @@ TEST(ai_metrics, explicitly_mapped_process_aggregates_workload_gpu_usage) {
 	EXPECT_TRUE(missing.configured);
 	EXPECT_FALSE(missing.available);
 	EXPECT_FALSE(AiMetrics::aggregate_processes(0, processes).configured);
+	const auto waiting = AiMetrics::aggregate_processes(0, processes, true);
+	EXPECT_TRUE(waiting.configured);
+	EXPECT_TRUE(waiting.automatic);
+	EXPECT_FALSE(waiting.available);
+	AiMetrics::Snapshot auto_panel;
+	auto_panel.runtime = "ollama";
+	auto_panel.available = true;
+	auto_panel.process = waiting;
+	EXPECT_EQ(AiMetrics::panel_lines(auto_panel)[4], "PID auto: listener not found");
 }
 
 TEST(ai_metrics, multiple_server_labels_identify_the_selected_source) {
@@ -538,6 +552,14 @@ TEST(ai_metrics, fetches_ollama_ps_without_creating_inference_requests) {
 	EXPECT_EQ(lines[3], "Tokens: N/A (Ollama has no passive API)");
 	HttpFixture missing("HTTP/1.0 404 Not Found\r\n\r\n");
 	EXPECT_EQ(AiMetrics::fetch_ollama(missing.endpoint).status, "Ollama /api/ps unavailable");
+}
+
+TEST(ai_metrics, discovers_the_exact_process_owning_a_listening_port) {
+	HttpFixture fixture(http("llamacpp:requests_processing 0\n"));
+	const std::vector<AiMetrics::ProcessSample> processes{{static_cast<size_t>(getpid()), static_cast<size_t>(getpid()), 0, 0}};
+	EXPECT_EQ(AiMetrics::discover_listener_pid(fixture.endpoint, processes), static_cast<size_t>(getpid()));
+	EXPECT_FALSE(AiMetrics::discover_listener_pid("127.0.0.1:1", processes));
+	EXPECT_FALSE(AiMetrics::discover_listener_pid(fixture.endpoint, {}));
 }
 
 TEST(ai_metrics, fetches_real_loopback_http) {

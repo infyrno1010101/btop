@@ -352,8 +352,9 @@ ai_llama_endpoint = "127.0.0.1:8080"
 ```
 
 `localhost:8080` is also accepted and connects directly to IPv4 loopback.
-The default empty string disables polling. The adapter never scans ports,
-reads command-line credentials, restarts a server, or sends inference requests.
+The default empty string disables polling. The adapter never searches for
+unconfigured endpoints, reads command-line credentials, restarts a server, or
+sends inference requests.
 An optional key file is read only when explicitly configured.
 It performs `GET /metrics` and, by default, `GET /slots` every two seconds on a
 background thread. Each request has a 250 ms total network deadline and a
@@ -445,7 +446,7 @@ to work for one server. For multiple connections, create a JSON file:
     "runtime": "llama.cpp",
     "endpoint": "127.0.0.1:8000",
     "api_key_file": "/path/to/primary-api-key",
-    "pid": 12345,
+    "pid": "auto",
     "live": true
   },
   {
@@ -465,7 +466,7 @@ ai_servers_file = "/absolute/path/to/ai-servers.json"
 ```
 
 A [connections example](examples/ai-servers.json) is included in the repository.
-Replace the ports, key-file paths, and optional PIDs with your servers' actual settings.
+Replace the ports and key-file paths with your servers' actual settings.
 Omit `api_key_file` or set it to an empty string for an unauthenticated server.
 Credentials are never inherited from another connection or from the legacy
 single-server key setting. Put only paths in this JSON file; inline API keys
@@ -500,17 +501,21 @@ are rejected.
   defaults to the global `ai_llama_live` setting, with per-connection overrides.
   Key-file paths and the connections-file path must be absolute. Unknown fields,
   oversized files (more than 64 KiB), and deeply nested JSON are rejected.
-- An optional positive integer `pid` explicitly associates a connection with a
-  process. btop aggregates that process and members of its detected workload job,
+- Set `"pid": "auto"` to associate a connection with the Linux process that
+  owns its configured listening socket. Resolution runs on the background reload
+  thread and follows server restarts without depending on `ss`, `lsof`, or a
+  process-name guess. btop refuses ambiguous ownership and reports `listener not
+  found` when `/proc` permissions hide the socket. A positive integer remains
+  available as an explicit fixed-PID override.
+- An automatically resolved PID is prefixed with `~` in the compact panel.
+- btop aggregates the resolved process and members of its detected workload job,
   including per-process GPU utilization and VRAM reported by the active GPU
-  backend. If the PID exits or is reused outside that job, the panel reports it as
-  missing until the connections file is updated. No process is guessed from a
-  port, name, or endpoint. GPU percentages are summed process samples and can
+  backend. GPU percentages are summed process samples and can
   exceed 100% across devices; shared VRAM allocations are not deduplicated.
 
 No servers are discovered, started, or restarted automatically. Configure only
 the endpoints you want btop to poll. Server telemetry remains independent of
-process mapping; a missing or stale PID does not stop endpoint polling.
+process mapping; an unresolved listener or missing fixed PID does not stop endpoint polling.
 
 #### vLLM connections (Linux)
 
@@ -599,7 +604,7 @@ Set `"runtime": "ollama"` to poll Ollama's read-only `GET /api/ps` endpoint:
   "name": "Local Ollama",
   "runtime": "ollama",
   "endpoint": "127.0.0.1:11434",
-  "pid": 12345
+  "pid": "auto"
 }
 ```
 

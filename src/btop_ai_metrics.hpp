@@ -70,6 +70,7 @@ struct ProcessUsage {
 	uint64_t gpu_memory = 0;
 	bool configured = false;
 	bool available = false;
+	bool automatic = false;
 };
 struct Snapshot {
 	std::string endpoint;
@@ -111,9 +112,11 @@ struct Connection {
 	bool live = true;
 	std::string runtime = "llama.cpp";
 	size_t process_pid = 0;
+	bool process_auto = false;
 	bool operator==(const Connection&) const = default;
 };
 auto parse_connections(std::string_view body, bool default_live = true) -> std::optional<std::vector<Connection>>;
+auto discover_listener_pid(std::string_view endpoint, const std::vector<ProcessSample>& processes) -> std::optional<size_t>;
 auto loopback_port(std::string_view endpoint) -> std::optional<uint16_t>;
 auto parse_prometheus(std::string_view body) -> std::optional<Values>;
 auto parse_vllm(std::string_view body) -> std::optional<Values>;
@@ -129,7 +132,7 @@ auto summary(const Snapshot& sample) -> std::string;
 // Seven rows hold a border and five content lines, leaving room for processes.
 auto panel_rows(int width, int available_height, bool enabled) -> int;
 auto panel_lines(const Snapshot& sample) -> std::vector<std::string>;
-auto aggregate_processes(size_t configured_pid, const std::vector<ProcessSample>& processes) -> ProcessUsage;
+auto aggregate_processes(size_t configured_pid, const std::vector<ProcessSample>& processes, bool automatic = false) -> ProcessUsage;
 // Configuration never performs I/O on the drawing/collection thread.
 void configure(const std::string& endpoint, const std::string& key_file = {}, bool live = true, const std::string& servers_file = {});
 auto snapshot() -> Snapshot;

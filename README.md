@@ -18,7 +18,9 @@
 >
 > In development for **btop-gpu 1.2.0**: passive Ollama loaded-model/VRAM
 > telemetry and optional per-connection PID mapping with aggregated process,
-> GPU-utilization, and VRAM totals. Ollama token rates remain explicitly unavailable
+> GPU-utilization, and VRAM totals. Linux connections can follow the exact owner
+> of their configured listening socket across server restarts with `"pid": "auto"`.
+> Ollama token rates remain explicitly unavailable
 > because its read-only API does not expose server-wide token counters.
 >
 > Release notes: [btop-gpu 1.1.0](docs/releases/btop-gpu-v1.1.0.md)

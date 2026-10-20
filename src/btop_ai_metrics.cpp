@@ -6,7 +6,10 @@
 #include <cctype>
 #include <cmath>
 #include <condition_variable>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <sstream>
 #include <thread>
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -587,16 +590,22 @@ auto parse_connections(std::string_view body, bool default_live) -> std::optiona
 			if (connection.runtime != "llama.cpp" and connection.runtime != "vllm" and connection.runtime != "sglang" and connection.runtime != "ollama") return std::nullopt;
 		}
 		if (item.contains("pid")) {
-			if (not item["pid"].is_number_integer()) return std::nullopt;
-			uint64_t pid{};
-			if (item["pid"].is_number_unsigned()) pid = item["pid"].get<uint64_t>();
-			else {
-				const auto signed_pid = item["pid"].get<int64_t>();
-				if (signed_pid <= 0) return std::nullopt;
-				pid = static_cast<uint64_t>(signed_pid);
+			if (item["pid"].is_string()) {
+				if (item["pid"].get<std::string>() != "auto") return std::nullopt;
+				connection.process_auto = true;
 			}
-			if (pid == 0 or pid > std::numeric_limits<int>::max()) return std::nullopt;
-			connection.process_pid = static_cast<size_t>(pid);
+			else if (not item["pid"].is_number_integer()) return std::nullopt;
+			else {
+				uint64_t pid{};
+				if (item["pid"].is_number_unsigned()) pid = item["pid"].get<uint64_t>();
+				else {
+					const auto signed_pid = item["pid"].get<int64_t>();
+					if (signed_pid <= 0) return std::nullopt;
+					pid = static_cast<uint64_t>(signed_pid);
+				}
+				if (pid == 0 or pid > std::numeric_limits<int>::max()) return std::nullopt;
+				connection.process_pid = static_cast<size_t>(pid);
+			}
 		}
 		const auto port = loopback_port(item["endpoint"].get<std::string>());
 		if (not port or not ports.insert(*port).second) return std::nullopt;
@@ -672,11 +681,57 @@ auto LiveTracker::update(const SlotSnapshot& sample, std::chrono::steady_clock::
 	return result;
 }
 
-auto aggregate_processes(size_t configured_pid, const std::vector<ProcessSample>& processes) -> ProcessUsage {
+auto discover_listener_pid(std::string_view endpoint, const std::vector<ProcessSample>& processes) -> std::optional<size_t> {
+#ifdef __linux__
+	const auto port = loopback_port(endpoint);
+	if (not port) return std::nullopt;
+	std::ifstream sockets("/proc/net/tcp");
+	if (not sockets) return std::nullopt;
+	std::set<std::string> inodes;
+	std::string line;
+	std::getline(sockets, line);
+	while (std::getline(sockets, line)) {
+		std::istringstream fields(line);
+		std::string slot, local, remote, state, queues, timers, retransmits, uid, timeout, inode;
+		if (not (fields >> slot >> local >> remote >> state >> queues >> timers >> retransmits >> uid >> timeout >> inode)) continue;
+		const auto colon = local.rfind(':');
+		if (colon == std::string::npos or state != "0A") continue;
+		unsigned int found_port{};
+		const auto text = std::string_view(local).substr(colon + 1);
+		const auto parsed = std::from_chars(text.data(), text.data() + text.size(), found_port, 16);
+		if (parsed.ec == std::errc{} and parsed.ptr == text.data() + text.size() and found_port == *port)
+			inodes.insert(std::move(inode));
+	}
+	if (inodes.empty()) return std::nullopt;
+	std::set<size_t> owners;
+	for (const auto& process : processes) {
+		std::error_code error;
+		const auto directory = std::filesystem::path("/proc") / std::to_string(process.pid) / "fd";
+		for (std::filesystem::directory_iterator it(directory, error), end; not error and it != end; it.increment(error)) {
+			const auto target = std::filesystem::read_symlink(it->path(), error).string();
+			if (error) { error.clear(); continue; }
+			if (target.starts_with("socket:[") and target.ends_with(']')
+				and inodes.contains(target.substr(8, target.size() - 9))) {
+				owners.insert(process.pid);
+				break;
+			}
+		}
+	}
+	if (owners.size() == 1) return *owners.begin();
+#else
+	(void)endpoint;
+	(void)processes;
+#endif
+	return std::nullopt;
+}
+
+auto aggregate_processes(size_t configured_pid, const std::vector<ProcessSample>& processes, bool automatic) -> ProcessUsage {
 	ProcessUsage result;
 	result.configured_pid = configured_pid;
-	result.configured = configured_pid != 0;
+	result.configured = configured_pid != 0 or automatic;
+	result.automatic = automatic;
 	if (not result.configured) return result;
+	if (configured_pid == 0) return result;
 	const auto configured = std::find_if(processes.begin(), processes.end(),
 		[configured_pid](const auto& process) { return process.pid == configured_pid; });
 	if (configured == processes.end()) return result;
@@ -707,11 +762,12 @@ auto display_bytes(uint64_t bytes, bool compact = false) -> std::string {
 
 auto process_text(const ProcessUsage& process, bool compact = false) -> std::string {
 	if (not process.configured) return {};
-	if (not process.available) return "PID " + std::to_string(process.configured_pid) + ": not found";
+	if (not process.available) return process.automatic ? "PID auto: listener not found"
+		: "PID " + std::to_string(process.configured_pid) + ": not found";
 	if (compact) {
 		const auto pid = process.root_pid == process.configured_pid ? std::to_string(process.configured_pid)
 			: std::to_string(process.configured_pid) + ">" + std::to_string(process.root_pid);
-		return "PID " + pid + " " + std::to_string(process.process_count) + "p | GPU "
+		return std::string("PID ") + (process.automatic ? "~" : "") + pid + " " + std::to_string(process.process_count) + "p | GPU "
 			+ fmt::format("{:.0f}%", process.gpu_percent) + " | VRAM " + display_bytes(process.gpu_memory, true);
 	}
 	const auto pid = process.root_pid == process.configured_pid ? std::to_string(process.configured_pid)
@@ -1020,6 +1076,7 @@ class Connections {
 	std::condition_variable_any changed;
 	Settings requested;
 	std::vector<Entry> entries;
+	std::vector<ProcessSample> latest_processes;
 	size_t selected = 0;
 	uint64_t revision = 0;
 	bool pending = false;
@@ -1033,6 +1090,7 @@ class Connections {
 			const auto settings = requested;
 			const auto version = revision;
 			auto previous = entries;
+			const auto processes = latest_processes;
 			lock.unlock();
 			ConnectionFile file;
 			if (not settings.file.empty()) file = load_connections(settings.file, settings.live);
@@ -1043,7 +1101,9 @@ class Connections {
 				file.status = "ready";
 			}
 			std::vector<Entry> next;
-			for (const auto& connection : file.connections) {
+			for (auto connection : file.connections) {
+				if (connection.process_auto)
+					connection.process_pid = discover_listener_pid(connection.endpoint, processes).value_or(0);
 				const auto old = std::find_if(previous.begin(), previous.end(), [&](const auto& entry) {
 					return entry.config.endpoint == connection.endpoint;
 				});
@@ -1121,8 +1181,9 @@ public:
 	}
 	void update_processes(const std::vector<ProcessSample>& processes) {
 		std::lock_guard lock(mutex);
+		latest_processes = processes;
 		for (auto& entry : entries)
-			entry.process = aggregate_processes(entry.config.process_pid, processes);
+			entry.process = aggregate_processes(entry.config.process_pid, processes, entry.config.process_auto);
 	}
 	void shutdown() {
 		if (loader.joinable()) {

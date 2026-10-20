@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix="btop-ollama-ui-") as directory:
         "name": "Local Ollama",
         "runtime": "ollama",
         "endpoint": f"127.0.0.1:{server.server_port}",
-        "pid": os.getpid(),
+        "pid": "auto",
     }]))
     config = root / "btop.conf"
     config.write_text(
@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="btop-ollama-ui-") as directory:
             if ("Loaded models: 1 | gemma3:latest" in text
                     and "Model VRAM: 5.0 GiB" in text
                     and "Tokens: N/A (Ollama has no passive" in text
-                    and f"PID {os.getpid()} 1p" in text
+                    and f"PID ~{os.getpid()} 1p" in text
                     and "GPU 0% | VRAM 0B" in text):
                 break
         else:
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix="btop-ollama-ui-") as directory:
         assert server.posts == 0, "monitoring must never create inference requests"
         os.write(master, b"q")
         assert process.wait(timeout=3) == 0
-        print("PASS: passive Ollama telemetry and explicit process mapping")
+        print("PASS: passive Ollama telemetry and automatic listener mapping")
     finally:
         if process.poll() is None:
             process.terminate()
