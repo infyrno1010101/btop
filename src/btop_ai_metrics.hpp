@@ -29,6 +29,7 @@ struct Slot {
 };
 struct LiveValues {
 	std::optional<double> tps;
+	std::optional<double> prompt_tps;
 	uint64_t output_tokens = 0;
 	std::optional<uint64_t> prompt_processed = 0;
 	std::string status = "disabled";

@@ -181,6 +181,29 @@ TEST(ai_metrics, live_rate_tracks_request_identity_and_recovers_from_failures) {
 	EXPECT_EQ(idle.output_tokens, 0);
 }
 
+TEST(ai_metrics, live_rate_reports_prompt_processing_before_generation) {
+	AiMetrics::LiveTracker tracker;
+	const auto start = std::chrono::steady_clock::time_point{};
+	AiMetrics::SlotSnapshot sample;
+	sample.available = true;
+	sample.slots = {{0, 41, 0, 200, true}};
+	tracker.update(sample, start);
+	sample.slots[0].prompt_processed = 500;
+	const auto prompt = tracker.update(sample, start + 2s);
+	EXPECT_EQ(prompt.tps, 0);
+	EXPECT_EQ(prompt.prompt_tps, 150);
+	AiMetrics::Snapshot panel;
+	panel.available = true;
+	panel.live = prompt;
+	EXPECT_EQ(AiMetrics::panel_lines(panel)[1], "Live: 150.0 tok/s (prompt)");
+	sample.slots[0].decoded = 80;
+	const auto generation = tracker.update(sample, start + 4s);
+	EXPECT_EQ(generation.tps, 40);
+	EXPECT_EQ(generation.prompt_tps, 0);
+	panel.live = generation;
+	EXPECT_EQ(AiMetrics::panel_lines(panel)[1], "Live: 40.0 tok/s (gen)");
+}
+
 TEST(ai_metrics, live_rate_sums_stable_slots_and_warms_up_on_membership_change) {
 	AiMetrics::LiveTracker tracker;
 	const auto start = std::chrono::steady_clock::time_point{};
@@ -208,7 +231,7 @@ TEST(ai_metrics, live_summary_keeps_live_and_accumulated_rates_distinct) {
 	sample.live.output_tokens = 180;
 	sample.live.active_slots = 2;
 	const auto text = AiMetrics::summary(sample);
-	EXPECT_NE(text.find("live 40.5 tok/s | out 180 | active 2 | queue 1"), text.npos);
+	EXPECT_NE(text.find("live 40.5 tok/s (gen) | out 180 | active 2 | queue 1"), text.npos);
 	EXPECT_EQ(text.find("999"), text.npos);
 	sample.live.available = false;
 	sample.live.tps.reset();
@@ -246,7 +269,7 @@ TEST(ai_metrics, inference_panel_separates_live_counts_and_server_average) {
 	const auto lines = AiMetrics::panel_lines(sample);
 	ASSERT_EQ(lines.size(), 5);
 	EXPECT_EQ(lines[0], "Server: 127.0.0.1:8000");
-	EXPECT_EQ(lines[1], "Live: 38.0 tok/s");
+	EXPECT_EQ(lines[1], "Live: 38.0 tok/s (gen)");
 	EXPECT_EQ(lines[2], "Active: 1 | Queue: 0");
 	EXPECT_EQ(lines[3], "Output: 125 | Prompt: 20");
 	EXPECT_EQ(lines[4], "Avg(total): 32.8 tok/s");

@@ -12,6 +12,8 @@ requests or guessing which process owns a server.
   count, summed per-process GPU utilization, and summed driver-reported VRAM.
 - A mapped worker PID resolves to its detected workload root. Missing PIDs stay
   visible as missing and do not stop endpoint polling.
+- llama.cpp live telemetry distinguishes prompt ingestion from output generation,
+  showing a prompt token rate while long prompts are still being processed.
 - Monitoring never infers ownership from a port or process name and never sends
   generation, chat, embedding, or model-load requests.
 

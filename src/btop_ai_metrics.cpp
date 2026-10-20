@@ -632,7 +632,8 @@ auto LiveTracker::update(const SlotSnapshot& sample, std::chrono::steady_clock::
 	result.available = true;
 	const auto seconds = std::chrono::duration<double>(now - previous_time).count();
 	bool comparable = primed and seconds > 0 and seconds <= 10 and sample.server_instance == previous_instance;
-	double delta = 0;
+	bool prompt_comparable = comparable;
+	double delta = 0, prompt_delta = 0;
 	size_t active = 0;
 	for (const auto& slot : sample.slots) {
 		if (not slot.processing) continue;
@@ -647,17 +648,22 @@ auto LiveTracker::update(const SlotSnapshot& sample, std::chrono::steady_clock::
 		});
 		if (old == previous.end() or slot.decoded < old->decoded) comparable = false;
 		else delta += static_cast<double>(slot.decoded - old->decoded);
+		if (old == previous.end() or not slot.prompt_processed or not old->prompt_processed
+			or *slot.prompt_processed < *old->prompt_processed) prompt_comparable = false;
+		else prompt_delta += static_cast<double>(*slot.prompt_processed - *old->prompt_processed);
 	}
 	// A departed task makes this interval incomplete. Warm up instead of
 	// reporting an undercount, or a spike from a reused slot's new counter.
 	for (const auto& old : previous) {
 		if (old.processing and std::none_of(sample.slots.begin(), sample.slots.end(), [&](const auto& slot) {
 			return slot.processing and slot.id == old.id and slot.task == old.task;
-		})) comparable = false;
+		})) comparable = prompt_comparable = false;
 	}
-	if (active == 0) { result.tps = 0; result.status = "idle"; }
+	prompt_comparable = prompt_comparable and comparable;
+	if (active == 0) { result.tps = 0; result.prompt_tps = 0; result.status = "idle"; }
 	else if (comparable) { result.tps = delta / seconds; result.status = "ready"; }
 	else result.status = "sampling";
+	if (active > 0 and prompt_comparable) result.prompt_tps = prompt_delta / seconds;
 	result.active_slots = active;
 	previous = sample.slots;
 	previous_time = now;
@@ -735,9 +741,13 @@ auto summary(const Snapshot& sample) -> std::string {
 			+ " | queue " + count(sample.values.queued) + " | total out " + count(sample.values.generated_tokens) + process_suffix;
 	}
 	if (sample.live.enabled and sample.live.available) {
-		const auto speed = sample.live.tps ? fmt::format("{:.1f}", *sample.live.tps) : "N/A (sampling)";
+		const bool prompt_active = (not sample.live.tps or *sample.live.tps == 0)
+			and sample.live.prompt_tps and *sample.live.prompt_tps > 0;
+		const auto rate = prompt_active ? sample.live.prompt_tps : sample.live.tps;
+		const auto speed = rate ? fmt::format("{:.1f}", *rate) : "N/A (sampling)";
+		const auto phase = prompt_active ? " (prompt)" : rate ? " (gen)" : "";
 		const auto queued = sample.available and sample.values.queued ? fmt::format("{:.0f}", *sample.values.queued) : "N/A";
-		return prefix + " | live " + speed + " tok/s | out " + std::to_string(sample.live.output_tokens)
+		return prefix + " | live " + speed + " tok/s" + phase + " | out " + std::to_string(sample.live.output_tokens)
 			+ " | active " + std::to_string(sample.live.active_slots) + " | queue " + queued
 			+ " | prompt " + (sample.live.prompt_processed ? std::to_string(*sample.live.prompt_processed) : "N/A") + process_suffix;
 	}
@@ -866,7 +876,10 @@ auto panel_lines(const Snapshot& sample) -> std::vector<std::string> {
 	lines[3] = "Total output: " + (sample.available ? count(sample.values.generated_tokens) : "N/A");
 	lines[4] = sample.available ? "Live polling off (Options > Processes)" : "Status: " + sample.status;
 	if (sample.live.enabled and sample.live.available) {
-		lines[1] = sample.live.tps ? "Live: " + fmt::format("{:.1f}", *sample.live.tps) + " tok/s"
+		const bool prompt_active = (not sample.live.tps or *sample.live.tps == 0)
+			and sample.live.prompt_tps and *sample.live.prompt_tps > 0;
+		const auto rate = prompt_active ? sample.live.prompt_tps : sample.live.tps;
+		lines[1] = rate ? "Live: " + fmt::format("{:.1f}", *rate) + " tok/s" + (prompt_active ? " (prompt)" : " (gen)")
 			: "Live: sampling (needs two readings)";
 		lines[3] = "Output: " + count(static_cast<double>(sample.live.output_tokens)) + " | Prompt: "
 			+ (sample.live.prompt_processed ? count(static_cast<double>(*sample.live.prompt_processed)) : "N/A");

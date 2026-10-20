@@ -18,7 +18,9 @@ class Handler(BaseHTTPRequestHandler):
             body = b'llamacpp:predicted_tokens_seconds 0\nllamacpp:tokens_predicted_total 7470\nllamacpp:tokens_predicted_seconds_total 227.973\nllamacpp:requests_processing 1\nllamacpp:requests_deferred 2\n'
         elif self.path == '/slots':
             Handler.ticks += 1
-            body = json.dumps([dict(id=0,id_task=42,is_processing=True,n_prompt_tokens_processed=80,next_token=[dict(n_decoded=Handler.ticks*75)])]).encode()
+            prompt = min(Handler.ticks, 2) * 100
+            decoded = max(Handler.ticks - 2, 0) * 75
+            body = json.dumps([dict(id=0,id_task=42,is_processing=True,n_prompt_tokens_processed=prompt,next_token=[dict(n_decoded=decoded)])]).encode()
         else:
             self.send_error(404);return
         self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
@@ -69,13 +71,17 @@ def screenshot():
             draw.text((x*cw,(y-first)*ch),c.data,font=font,fill=fg)
     im.save(os.environ['BTOP_PANEL_SCREENSHOT'])
 try:
+    saw_prompt_rate = False
     for _ in range(70):
         drain(.1)
-        if re.search(r'Live: [1-9][0-9.]* tok/s',text()): break
+        if re.search(r'Live: [1-9][0-9.]* tok/s \(prompt\)', text()):
+            saw_prompt_rate = True
+        if re.search(r'Live: [1-9][0-9.]* tok/s \(gen\)',text()): break
+    check(saw_prompt_rate, 'live prompt-processing rate displayed')
     check('AI inference [A]' in text(),'dedicated panel visible')
     check('Server: '+endpoint in text(),'source endpoint visible')
     check(bool(re.search(r'Live: [1-9][0-9.]* tok/s',text())),'live rate displayed')
-    for value in ['Active: 1 | Queue: 2','Output:','Prompt: 80','Avg(total): 32.8 tok/s']:
+    for value in ['Active: 1 | Queue: 2','Output:','Prompt: 200','Avg(total): 32.8 tok/s']:
         check(value in text(),value)
     check('tok/s peak' in text() and 'Queue peak' in text(),'wide panel shows throughput and queue history')
     check('~2s/col' in text(),'history sampling scale is labeled')
@@ -93,7 +99,7 @@ try:
     check(before in screen.display[-1],'clicking panel data does not change process selection')
     send(b'u')
     send(f'\x1b[<0;10;{panel_y}M\x1b[<0;10;{panel_y}m'.encode())
-    check('AI inference [A]' not in text() and ' tok/s | out ' in text(),'clicking title switches to compact metrics')
+    check('AI inference [A]' not in text() and re.search(r' tok/s \((?:prompt|gen)\) \| out ', text()),'clicking title switches to compact metrics')
     send(b'A')
     check('AI inference [A]' in text(),'Shift+A restores the panel')
     check('select' in screen.display[-1],'footer survives toggling')
@@ -103,7 +109,7 @@ try:
     screen.resize(lines=16,columns=160);winsize(16,160);os.kill(p.pid,signal.SIGWINCH);drain(1)
     check('AI inference [A]' in text(),'panel remains visible in a 16-row process area')
     send(b'\x1b[H');send(b'\x1b[B');send(b'\r')
-    check('AI inference [A]' not in text() and ' tok/s | out ' in text(),'short window with process details falls back to compact')
+    check('AI inference [A]' not in text() and re.search(r' tok/s \((?:prompt|gen)\) \| out ', text()),'short window with process details falls back to compact')
     screen.resize(lines=40,columns=160);winsize(40,160);os.kill(p.pid,signal.SIGWINCH);drain(1)
     check('AI inference [A]' in text(),'panel returns after growing the window')
     check('tok/s peak' in text(),'history returns after growing the window')
